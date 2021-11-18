@@ -104,7 +104,6 @@ class Eval():
         print(eval_result)
         return eval_result
 
-
     def r_k(self, cutoff):
         start_time = time.time()
         filtered_result = self.filter_results(cutoff)
