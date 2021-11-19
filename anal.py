@@ -271,7 +271,6 @@ class Analyse():
             for doc in self.corpus[cor].keys():
                 united_corpus.append(self.corpus[cor][doc])
 
-
         return united_corpus
 
     def get_lda_corpus(self):
@@ -283,7 +282,7 @@ class Analyse():
         return corpus
 
     def train_lda(self, k):
-        lda = LdaModel(corpus=self.get_lda_corpus(), num_topics=k, alpha='auto')
+        lda = LdaModel(corpus=self.get_lda_corpus(), num_topics=k, iterations=300)
 
         # save lda model
         temp = datapath('lda_model')
@@ -358,13 +357,13 @@ class Analyse():
     def extract_tokens_from_lda_str(self, lda_token_string):
         ids = {}
 
+        #get token ID : word dictionary to retrieve words
         corp_dictionary = Dictionary(self.get_all_docs())
         word_to_id = self.reverse_dict(corp_dictionary.token2id)
 
-        aa = lda_token_string.replace(' ', '').replace('\"', '').split('+')
-        for a in aa:
-            prob, num = a.split('*')
-
+        pns = lda_token_string.replace(' ', '').replace('\"', '').split('+')
+        for prob_num in pns:
+            prob, num = prob_num.split('*')
             ids[word_to_id[int(num)]] = prob
 
         ids_sorted = {k: v for k, v in sorted(ids.items(), key=lambda item: item[1], reverse=True)}
@@ -398,7 +397,6 @@ class Analyse():
         print(power_words_nt)
         print(power_words_qu)
 
-
 a = Analyse()
 # corp = a.create_corpus()
 corp = a.load_corpus()
@@ -407,6 +405,7 @@ corp = a.load_corpus()
 # a.run_calculation('mi')
 # a.run_calculation('chi')
 # a.sort_result('mi')
-# a.train_lda(k=20)
-# a.lda_calc_average_score()
+# a.sort_result('chi')
+a.train_lda(k=20)
+a.lda_calc_average_score()
 a.find_top_tokens()
