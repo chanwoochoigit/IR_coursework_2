@@ -144,7 +144,7 @@ class Preprocessor():
             if c != cls:
                 c0.append(c)
 
-        N11, N10, N01, N00 = sys.float_info.epsilon, sys.float_info.epsilon, sys.float_info.epsilon, sys.float_info.epsilon
+        N11, N10, N01, N00 = 0, 0, 0, 0
 
         #investigate document in the given class
         for doc in self.corpus[cls].keys():
@@ -171,12 +171,24 @@ class Preprocessor():
 
         N = N11 + N10 + N01 + N00
 
-        mi = (N11 / N) * log2((N * N11) / ((N11 + N10) * (N01 + N11))) + \
-             (N01 / N) * log2((N * N01) / ((N01 + N00) * (N01 + N11))) + \
-             (N10 / N) * log2((N * N10) / ((N10 + N11) * (N10 + N00))) + \
-             (N00 / N) * log2((N * N00) / ((N00 + N01) * (N10 + N00)))
+        try:
+            aa = (N11 / N) * log2((N * N11) / ((N11 + N10) * (N01 + N11)))
+        except:
+            aa = 0
+        try:
+            bb = (N01 / N) * log2((N * N01) / ((N01 + N00) * (N01 + N11)))
+        except:
+            bb = 0
+        try:
+            cc = (N10 / N) * log2((N * N10) / ((N10 + N11) * (N10 + N00)))
+        except:
+            cc = 0
+        try:
+            dd = (N00 / N) * log2((N * N00) / ((N00 + N01) * (N10 + N00)))
+        except:
+            dd = 0
 
-        return mi
+        return aa + bb + cc + dd
 
     def calc_chi(self, term, cls):
         N11, N10, N01, N00 = self.get_Ns(term, cls)
@@ -247,5 +259,5 @@ corp = p.load_corpus()
 print(len(corp['ot'].keys()) + len(corp['nt'].keys()) + len(corp['quran'].keys()))
 # print(p.get_mi_counts(1, 3))
 # p.run_calculation('mi')
-p.run_calculation('chi')
-# p.sort_result()
+# p.run_calculation('chi')
+p.sort_result('mi')

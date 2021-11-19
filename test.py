@@ -16,15 +16,27 @@ def calc_dcg(nums):
 def calc_mi(N11, N10, N01, N00):
     N = N11 + N10 + N01 + N00
 
-    aa = (N11/N) * log2((N*N11)/((N11+N10)*(N01+N11)))
-    bb = (N01/N) * log2((N*N01)/((N01+N00)*(N01+N11)))
-    cc = (N10/N) * log2((N*N10)/((N10+N11)*(N10+N00)))
-    dd = (N00/N) * log2((N*N00)/((N00+N01)*(N10+N00)))
+    try:
+        aa = (N11/N) * log2((N*N11)/((N11+N10)*(N01+N11)))
+    except:
+        aa = 0
+    try:
+        bb = (N01 / N) * log2((N * N01) / ((N01 + N00) * (N01 + N11)))
+    except:
+        bb = 0
+    try:
+        cc = (N10 / N) * log2((N * N10) / ((N10 + N11) * (N10 + N00)))
+    except:
+        cc = 0
+    try:
+        dd = (N00 / N) * log2((N * N00) / ((N00 + N01) * (N10 + N00)))
+    except:
+        dd = 0
 
     return aa + bb + cc + dd
 
 def calc_chi(N11, N10, N01, N00):
     return ((N11 + N10 + N01 + N00) * pow(((N11 * N00) - (N10 * N01)),2))/((N11+N01)*(N11+N10)*(N10+N00)*(N01+N00))
 
-print(calc_mi(2, 1, 20754, 12728))
-print(calc_chi(49, 27652, 141, 774106))
+print(calc_mi(2, 0, 20754, 12728))
+print(calc_chi(2, 0, 20754, 12728))
