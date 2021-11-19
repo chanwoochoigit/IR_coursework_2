@@ -135,7 +135,7 @@ class Preprocessor():
         return processed_chunks_loads
 
     #get counts to calculate mutual information
-    def get_mi_counts(self, term, cls):
+    def get_Ns(self, term, cls):
         classes = self.corpus.keys()
 
         #find "non-current" class
@@ -167,7 +167,7 @@ class Preprocessor():
 
     #calculate mutual information given all 4 counts
     def calc_mi(self, term, cls):
-        N11, N10, N01, N00 = self.get_mi_counts(term, cls)
+        N11, N10, N01, N00 = self.get_Ns(term, cls)
 
         N = N11 + N10 + N01 + N00
 
@@ -178,8 +178,14 @@ class Preprocessor():
 
         return mi
 
-    def run_mi_calculation(self):
-        mi_result = self.init_nd_dict()
+    def calc_chi(self, term, cls):
+        N11, N10, N01, N00 = self.get_Ns(term, cls)
+        return ((N11 + N10 + N01 + N00) * pow(((N11 * N00) - (N10 * N01)), 2)) / \
+               ((N11 + N01) * (N11 + N10) * (N10 + N00) * (N01 + N00))
+
+    def run_calculation(self, mode):
+
+        result = self.init_nd_dict()
 
         counter = 1
         for cls in self.corpus.keys():
@@ -188,23 +194,51 @@ class Preprocessor():
                 print('class: {}/3---------------------------------------------------'.format(counter))
                 print('calculating mutual information...{}/{}'.format(doc, len(self.corpus[cls].keys())))
                 for word in self.corpus[cls][doc]:
-                    mi = self.calc_mi(word, cls)
-                    mi_result[word][cls] = mi
+                    if mode == 'mi':
+                        score = self.calc_mi(word, cls)
+                    elif mode == 'chi':
+                        score = self.calc_chi(word, cls)
+                    else:
+                        raise ValueError('wrong calcluation mode entered! - choose mi or chi')
+                    result[word][cls] = score
             counter += 1
 
-        with open('mi.json', 'w') as f:
-            json.dump(mi_result, f)
+        with open('{}.json'.format(mode), 'w') as f:
+            json.dump(result, f)
 
-        return mi_result
+        return result
 
-    def sort_result(self):
-        with open('mi.json', 'r') as f:
-            mi = json.load(f)
+    def sort_dict_by_value(self, dict_to_sort):
+        return dict(sorted(dict_to_sort.items(), key=lambda item: item[1], reverse=True))
+
+    def display_ranked_result(self, result_dict):
+        for i, item in enumerate(result_dict.items()):
+            term = item[0]
+            score = item[1]
+            print(term+': '+str(score))
+            if i > 10:
+                break
+
+    def sort_result(self, mode):
+        with open('{}.json'.format(mode), 'r') as f:
+            to_display = json.load(f)
         to_sort = self.init_nd_dict()
-        for word in mi.keys():
-            for corpus in mi[word]:
-                score = mi[word][corpus]
-                print(score)
+        for word in to_display.keys():
+            for corpus in to_display[word]:
+                score = to_display[word][corpus]
+                to_sort[corpus][word] = score
+
+        sorted_ot = self.sort_dict_by_value(to_sort['ot'])
+        sorted_nt = self.sort_dict_by_value(to_sort['nt'])
+        sorted_qu = self.sort_dict_by_value(to_sort['quran'])
+
+        self.display_ranked_result(sorted_ot)
+        print('----------------------------')
+        self.display_ranked_result(sorted_nt)
+        print('----------------------------')
+        self.display_ranked_result(sorted_qu)
+
+
 
 p = Preprocessor()
 # corp = p.create_corpus()
@@ -212,5 +246,6 @@ corp = p.load_corpus()
 # print(corp)
 print(len(corp['ot'].keys()) + len(corp['nt'].keys()) + len(corp['quran'].keys()))
 # print(p.get_mi_counts(1, 3))
-# p.run_mi_calculation()
-p.sort_result()
+# p.run_calculation('mi')
+p.run_calculation('chi')
+# p.sort_result()

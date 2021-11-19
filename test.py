@@ -1,6 +1,6 @@
 nums = [3,3,3,3,2,2,2,2,1,1]
 nums_2 = [0,1,0,0,1,0,0,0,0,1]
-from math import log2
+from math import log2, pow
 
 def calc_dcg(nums):
     mark = 0
@@ -23,4 +23,8 @@ def calc_mi(N11, N10, N01, N00):
 
     return aa + bb + cc + dd
 
-print(calc_mi(2, 0, 20754, 12728))
+def calc_chi(N11, N10, N01, N00):
+    return ((N11 + N10 + N01 + N00) * pow(((N11 * N00) - (N10 * N01)),2))/((N11+N01)*(N11+N10)*(N10+N00)*(N01+N00))
+
+print(calc_mi(2, 1, 20754, 12728))
+print(calc_chi(49, 27652, 141, 774106))
