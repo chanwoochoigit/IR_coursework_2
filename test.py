@@ -50,7 +50,7 @@ def extract(string):
     ids = []
     aa = string.replace(' ','').replace('\"','').split('+')
     for a in aa:
-        num = a.split('*')
+        num = a.split('*')[1]
         ids.append(num)
 
     print(ids)

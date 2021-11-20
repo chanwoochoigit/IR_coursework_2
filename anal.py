@@ -271,7 +271,6 @@ class Analyse():
             for doc in self.corpus[cor].keys():
                 united_corpus.append(self.corpus[cor][doc])
 
-
         return united_corpus
 
     def get_lda_corpus(self):
@@ -283,7 +282,7 @@ class Analyse():
         return corpus
 
     def train_lda(self, k):
-        lda = LdaModel(corpus=self.get_lda_corpus(), num_topics=k, alpha='auto')
+        lda = LdaModel(corpus=self.get_lda_corpus(), num_topics=k, iterations=300)
 
         # save lda model
         temp = datapath('lda_model')
@@ -325,7 +324,7 @@ class Analyse():
         #set probability to 0 if a topic probability does not appear
         for c in lda_result_dict.keys():
             for doc in lda_result_dict[c].keys():
-                for topic in range(1, 21):
+                for topic in range(0, 20):
                     try:
                         if lda_result_dict[c][doc][topic] == {}:
                             lda_result_dict[c][doc][topic] = 0
@@ -354,8 +353,22 @@ class Analyse():
         with open('avg_score_dict.json', 'w') as f:
             json.dump(avg_scores, f)
 
-    def extract_tok_ids(self, lda_token_string):
+    #extract token ides from a string returned from lda.print_topic()
+    def extract_tokens_from_lda_str(self, lda_token_string):
+        ids = {}
 
+        #get token ID : word dictionary to retrieve words
+        corp_dictionary = Dictionary(self.get_all_docs())
+        word_to_id = self.reverse_dict(corp_dictionary.token2id)
+
+        pns = lda_token_string.replace(' ', '').replace('\"', '').split('+')
+        for prob_num in pns:
+            prob, num = prob_num.split('*')
+            ids[word_to_id[int(num)]] = prob
+
+        ids_sorted = {k: v for k, v in sorted(ids.items(), key=lambda item: item[1], reverse=True)}
+
+        return ids_sorted
 
     def find_top_tokens(self):
         with open('avg_score_dict.json', 'r') as f:
@@ -369,14 +382,20 @@ class Analyse():
         print('nt: '+nt_topic_best)
         print('quran: '+qu_topic_best)
 
-        lda = self.lda
-        print(lda.print_topic(int(ot_topic_best)))
+        #find key tokens for each corpus
 
-        corp_dictionary = Dictionary(self.get_all_docs())
-        word_to_id = self.reverse_dict(corp_dictionary.token2id)
+        lda_token_str_ot = self.lda.print_topic(int(ot_topic_best))
+        power_words_ot = self.extract_tokens_from_lda_str(lda_token_str_ot)
 
+        lda_token_str_nt = self.lda.print_topic(int(nt_topic_best))
+        power_words_nt = self.extract_tokens_from_lda_str(lda_token_str_nt)
 
+        lda_token_str_qu = self.lda.print_topic(int(qu_topic_best))
+        power_words_qu = self.extract_tokens_from_lda_str(lda_token_str_qu)
 
+        print(power_words_ot)
+        print(power_words_nt)
+        print(power_words_qu)
 
 a = Analyse()
 # corp = a.create_corpus()
@@ -386,6 +405,7 @@ corp = a.load_corpus()
 # a.run_calculation('mi')
 # a.run_calculation('chi')
 # a.sort_result('mi')
-# a.train_lda(k=20)
-# a.lda_calc_average_score()
+# a.sort_result('chi')
+a.train_lda(k=20)
+a.lda_calc_average_score()
 a.find_top_tokens()
