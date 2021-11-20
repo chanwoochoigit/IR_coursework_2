@@ -282,11 +282,13 @@ class Analyse():
         return corpus
 
     def train_lda(self, k):
-        lda = LdaModel(corpus=self.get_lda_corpus(), num_topics=k, iterations=300)
+        # r = randrange(100)
+        # print(r)
+        lda = LdaModel(corpus=self.get_lda_corpus(), num_topics=k)
 
         # save lda model
-        temp = datapath('lda_model')
-        lda.save(temp)
+        save_loc = datapath('lda_model')
+        lda.save(save_loc)
 
     def load_lda(self):
         return LdaModel.load(datapath('lda_model'))
@@ -397,15 +399,18 @@ class Analyse():
         print(power_words_nt)
         print(power_words_qu)
 
+        return ot_topic_best, nt_topic_best, qu_topic_best
+
+
 a = Analyse()
 # corp = a.create_corpus()
-corp = a.load_corpus()
+# corp = a.load_corpus()
 # print(len(corp['ot'].keys()) + len(corp['nt'].keys()) + len(corp['quran'].keys()))
 # print(a.get_mi_counts(1, 3))
 # a.run_calculation('mi')
 # a.run_calculation('chi')
 # a.sort_result('mi')
 # a.sort_result('chi')
-a.train_lda(k=20)
-a.lda_calc_average_score()
-a.find_top_tokens()
+# a.train_lda(k=20)
+# a.lda_calc_average_score()
+# a.find_top_tokens()
