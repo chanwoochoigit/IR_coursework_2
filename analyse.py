@@ -1,10 +1,12 @@
 import itertools
+import random
 import re
 import sys
+import time
 from collections import defaultdict
 import json
 from random import randrange
-
+from sklearn.svm import SVC
 import numpy as np
 from gensim.corpora.dictionary import Dictionary
 from gensim.test.utils import datapath
@@ -12,8 +14,10 @@ from gensim.models import LdaModel
 from nltk.stem import PorterStemmer
 from math import log2
 from scipy import sparse
-
 #my preprocessing module from coursework 1
+import pickle
+from sklearn.metrics import precision_recall_fscore_support
+
 class Preprocessor():
 
     def __init__(self):
@@ -33,6 +37,19 @@ class Preprocessor():
             vocab[i] = word
 
         return vocab
+
+    def encode_labels(self, labels):
+        labels_encoded = []
+        for l in labels:
+            if l == 'ot':
+                labels_encoded.append(0)
+            elif l == 'nt':
+                labels_encoded.append(1)
+            elif l == 'quran':
+                labels_encoded.append(2)
+            else:
+                raise ValueError('wrong corpus name!')
+        return labels_encoded
 
     def create_count_matrix(self, docs, vocab):
         count_mtx = sparse.dok_matrix((len(docs), len(vocab)), dtype=int)
@@ -439,15 +456,82 @@ class Classifier():
                 print('building docs and preprocessing...{}%'.format(round(docid / len(raw_text) * 100, 2)))
             c, text = line.split('\t')
             docs[docid] = p.preprocess_baseline(text)
-            labels.append(c)
+            labels.append(c.lower())
 
-        vocab = p.unique_from_array(list(docs.values()))
-        count_mtx = p.create_count_matrix(docs, vocab)
+        vocab = p.unique_from_array(list(docs.values()))    #create vocab from the corpus
+        p.create_count_matrix(docs, vocab)
+        encoded_labels = p.encode_labels(labels)    #encode corpus labels; ot=0, nt=1, quran=2
+
+        with open('labels.json', 'w') as f:         #save encoded corpus to json
+            json.dump(encoded_labels, f)
+
 
     def load_cm(self):
         # convert back to dok after loading
         coo = sparse.load_npz('count_matrix.npz')
         return coo.todok()
+
+    def load_label(self):
+        with open('labels.json', 'r') as f:
+            return json.load(f)
+
+    def shuffle_and_split(self, X, y):
+        dataset = list(zip(X.todense(),y))  #zip the count matrix and labels
+        random.shuffle(dataset)             #shuffle the cm-label tuples
+
+        X_train, y_train, X_test, y_test = [], [], [], []
+
+        for i, line in enumerate(dataset):
+            if i < len(dataset)*0.8:
+                X_train.append(np.squeeze(np.asarray(line[0])))
+                y_train.append(line[1])
+            else:
+                X_test.append(np.squeeze(np.asarray(line[0])))
+                y_test.append(line[1])
+
+        X_train_sparse = sparse.dok_matrix(X_train)
+        X_test_sparse = sparse.dok_matrix(X_test)
+
+        return X_train_sparse, y_train, X_test_sparse, y_test
+
+    def evaluate_predictions(self):
+        model = self.load_svm_model()
+
+        _, _, X_test, y_test = self.shuffle_and_split(self.load_cm(), self.load_label())
+        y_pred = model.predict(X_test)
+
+        for p,t in zip(y_pred, y_test):
+            if p != t:
+                print(str(p)+' '+str(t))
+
+        aa = precision_recall_fscore_support(y_pred=y_pred, y_true=y_test)
+        print('class=====>   OT  | NT     | QURAN')
+        print('precision: {}% | {}% | {}%'.format(round(aa[0][0]*100,2), round(aa[0][1]*100,2), round(aa[0][2]*100,2)))
+        print('recall:    {}% | {}% | {}%'.format(round(aa[1][0]*100,2), round(aa[1][1]*100,2), round(aa[1][2]*100,2)))
+        print('f-score:   {}% | {}% | {}%'.format(round(aa[2][0]*100,2), round(aa[2][1]*100,2), round(aa[2][2]*100,2)))
+
+    def train_svm(self):
+        X = self.load_cm()
+        y = self.load_label()
+
+        X_train, y_train, X_test, y_test = self.shuffle_and_split(X, y)
+
+        model = SVC(C=1000, verbose=True) #init sklearn.svm.SVC
+
+        print("start traninig SVM!")
+        start_train = time.time()
+        model.fit(X_train,y_train)
+        print('total training time: {} seconds'.format(time.time() - start_train))
+
+        with open('svc_model.pkl', 'wb') as f:
+            pickle.dump(model, f)
+
+
+    def load_svm_model(self):
+        with open('svc_model.pkl', 'rb') as f:
+            model = pickle.load(f)
+        return model
+
 
 a = Analyse()
 # corp = a.create_corpus()
@@ -463,4 +547,5 @@ a = Analyse()
 # a.find_top_tokens()
 c = Classifier()
 # c.prepare_data()
-print(c.load_cm())
+# c.train_svm()
+c.evaluate_predictions()
