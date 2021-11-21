@@ -32,11 +32,8 @@ class Preprocessor():
         items_1d = list(itertools.chain.from_iterable(items))
         unique_dump = []
         [unique_dump.append(x) for x in items_1d if x not in unique_dump]
-        vocab = {}
-        for i, word in enumerate(unique_dump):
-            vocab[i] = word
 
-        return vocab
+        return unique_dump
 
     def encode_labels(self, labels):
         labels_encoded = []
@@ -54,22 +51,19 @@ class Preprocessor():
     def create_count_matrix(self, docs, vocab):
         count_mtx = sparse.dok_matrix((len(docs), len(vocab)), dtype=int)
 
-        for v_ in vocab.keys():
-            if v_ % 10 == 0:
-                print('counting word number ... {}%'.format(round(v_ / len(vocab) * 100, 3)))
-            voca = vocab[v_]
-            for d_ in docs.keys():
-                counter = 0
-                for word in docs[d_]:
-                    if voca == word:
-                        counter += 1
-                count_mtx[d_, v_] = counter
-
+        for i, doc in enumerate(docs):
+            if i % 10 == 0:
+                print('creating count matrix ..... {}%'.format(round(i / len(docs) * 100, 2)))
+            for j, voc in enumerate(vocab):
+                voc_count = 0
+                for word in doc:
+                    if voc == word:
+                        voc_count += 1
+                count_mtx[i,j] = voc_count
         #convert to coo and save as npz because dok save is not available yet
         #convert back to dok after loading
         sparse.save_npz('count_matrix.npz', count_mtx.tocoo())
-
-        return count_mtx
+        print('Successfully save count matrix to disk.')
 
     def trim_text(self, text):
         text_str = text.replace('\n', ' ').replace('\t',' ').replace('  ',' ')  # replace \n with a space, and if that creates a double space, replace it with a single space
@@ -449,16 +443,16 @@ class Classifier():
         with open('train_and_dev.tsv', 'r') as f:
             raw_text = f.readlines()
 
-        docs = {}
+        docs = []
         labels = []
         for docid, line in enumerate(raw_text):
             if docid % 5000 == 0:
                 print('building docs and preprocessing...{}%'.format(round(docid / len(raw_text) * 100, 2)))
             c, text = line.split('\t')
-            docs[docid] = p.preprocess_baseline(text)
+            docs.append(p.preprocess_baseline(text))
             labels.append(c.lower())
 
-        vocab = p.unique_from_array(list(docs.values()))    #create vocab from the corpus
+        vocab = p.unique_from_array(docs)    #create vocab from the corpus
         p.create_count_matrix(docs, vocab)
         encoded_labels = p.encode_labels(labels)    #encode corpus labels; ot=0, nt=1, quran=2
 
