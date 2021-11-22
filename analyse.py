@@ -441,6 +441,18 @@ class Classifier():
 
         return raw_text
 
+    def shuffle_and_split(self, X, y):
+        dataset = list(zip(X.todense(),y))  #zip the count matrix and labels
+        random.shuffle(dataset)             #shuffle the cm-label tuples
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.9)
+
+        X_train_sparse = sparse.dok_matrix(X_train)
+        X_test_sparse = sparse.dok_matrix(X_test)
+
+        # return X_train_sparse, y_train, X_test_sparse, y_test
+        return X_train_sparse, X_test_sparse, y_train, y_test
+
     def prepare_data(self, mode):
         p = Preprocessor()
 
@@ -464,46 +476,40 @@ class Classifier():
         count_mtx = p.create_count_matrix(docs, vocab, mode)
         encoded_labels = p.encode_labels(labels)        #encode corpus labels; ot=0, nt=1, quran=2
 
-        # convert to coo and save as npz because dok save is not available yet
-        # need to convert back to dok when loading
-        sparse.save_npz('count_matrix_{}.npz'.format(mode), count_mtx.tocoo())
+        X_train, X_test, y_train, y_test = self.shuffle_and_split(count_mtx, encoded_labels)
+        # X_train, y_train, X_test, y_test =
+        #save shuffled and splitted data to disk
+        with open('X_train_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(X_train, f)
+        with open('X_test_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(X_test, f)
+        with open('y_train_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(y_train, f)
+        with open('y_test_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(y_test, f)
 
-        with open('labels_{}.json'.format(mode), 'w') as f:             #save encoded corpus to json
-            json.dump(encoded_labels, f)
+    def load_data(self, mode):
+        with open('X_train_{}.pkl'.format(mode), 'rb') as f:
+            X_train = pickle.load(f)
+        with open('X_test_{}.pkl'.format(mode), 'rb') as f:
+            X_test = pickle.load(f)
+        with open('y_train_{}.pkl'.format(mode), 'rb') as f:
+            y_train = pickle.load(f)
+        with open('y_test_{}.pkl'.format(mode), 'rb') as f:
+            y_test = pickle.load(f)
 
-    def load_cm(self, mode):
-        # convert back to dok after loading
-        coo = sparse.load_npz('count_matrix_{}.npz'.format(mode))
-        return coo.todok()
-
-    def load_label(self, mode):
-        with open('labels_{}.json'.format(mode), 'r') as f:
-            return json.load(f)
-
-    def shuffle_and_split(self, X, y):
-        dataset = list(zip(X.todense(),y))  #zip the count matrix and labels
-        random.shuffle(dataset)             #shuffle the cm-label tuples
-
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8)
-
-        X_train_sparse = sparse.dok_matrix(X_train)
-        X_test_sparse = sparse.dok_matrix(X_test)
-
-        return X_train_sparse, y_train, X_test_sparse, y_test
+        return X_train, X_test, y_train, y_test
 
     def train_svm(self, mode):
         if mode == 'baseline':
             c = 1000
         elif mode == 'advanced':
-            c = 10
+            c = 2
         else:
             raise ValueError('wrong mode to train SVM!!')
 
-        X = self.load_cm(mode)
-        y = self.load_label(mode)
-
-        X_train, y_train, X_test, y_test = self.shuffle_and_split(X, y)
-
+        X_train, X_test, y_train, y_test = self.load_data(mode)
+        print(X_test)
         model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
 
         print("start traninig SVM!")
@@ -524,7 +530,7 @@ class Classifier():
     def evaluate_predictions(self, mode):
         model = self.load_svm_model(mode)
 
-        _, _, X_test, y_test = self.shuffle_and_split(self.load_cm(mode), self.load_label(mode))
+        _, X_test, _, y_test = self.load_data(mode)
         y_pred = model.predict(X_test)
 
         aa = precision_recall_fscore_support(y_pred=y_pred, y_true=y_test)
@@ -532,6 +538,8 @@ class Classifier():
         print('precision: {}% | {}% | {}%'.format(round(aa[0][0]*100,2), round(aa[0][1]*100,2), round(aa[0][2]*100,2)))
         print('recall:    {}% | {}% | {}%'.format(round(aa[1][0]*100,2), round(aa[1][1]*100,2), round(aa[1][2]*100,2)))
         print('f-score:   {}% | {}% | {}%'.format(round(aa[2][0]*100,2), round(aa[2][1]*100,2), round(aa[2][2]*100,2)))
+
+    # def display_predictions(self, y_pred, ):
 
 
 a = Analyse()
@@ -549,7 +557,7 @@ a = Analyse()
 
 c = Classifier()
 modes = ['baseline', 'advanced']
-mode = modes[1]
+mode = modes[0]
 # c.prepare_data(mode)
 c.train_svm(mode)
 # c.evaluate_predictions(modes[0])
