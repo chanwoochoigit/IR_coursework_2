@@ -1,10 +1,12 @@
 import itertools
+import random
 import re
 import sys
+import time
 from collections import defaultdict
 import json
 from random import randrange
-
+from sklearn.svm import SVC
 import numpy as np
 from gensim.corpora.dictionary import Dictionary
 from gensim.test.utils import datapath
@@ -12,8 +14,10 @@ from gensim.models import LdaModel
 from nltk.stem import PorterStemmer
 from math import log2
 from scipy import sparse
-
 #my preprocessing module from coursework 1
+import pickle
+from sklearn.metrics import precision_recall_fscore_support
+from sklearn.model_selection import train_test_split
 class Preprocessor():
 
     def __init__(self):
@@ -28,29 +32,34 @@ class Preprocessor():
         items_1d = list(itertools.chain.from_iterable(items))
         unique_dump = []
         [unique_dump.append(x) for x in items_1d if x not in unique_dump]
-        vocab = {}
-        for i, word in enumerate(unique_dump):
-            vocab[i] = word
 
-        return vocab
+        return unique_dump
 
-    def create_count_matrix(self, docs, vocab):
+    def encode_labels(self, labels):
+        labels_encoded = []
+        for l in labels:
+            if l == 'ot':
+                labels_encoded.append(0)
+            elif l == 'nt':
+                labels_encoded.append(1)
+            elif l == 'quran':
+                labels_encoded.append(2)
+            else:
+                raise ValueError('wrong corpus name!')
+        return labels_encoded
+
+    def create_count_matrix(self, docs, vocab, mode):
         count_mtx = sparse.dok_matrix((len(docs), len(vocab)), dtype=int)
 
-        for v_ in vocab.keys():
-            if v_ % 10 == 0:
-                print('counting word number ... {}%'.format(round(v_ / len(vocab) * 100, 3)))
-            voca = vocab[v_]
-            for d_ in docs.keys():
-                counter = 0
-                for word in docs[d_]:
-                    if voca == word:
-                        counter += 1
-                count_mtx[d_, v_] = counter
-
-        #convert to coo and save as npz because dok save is not available yet
-        #convert back to dok after loading
-        sparse.save_npz('count_matrix.npz', count_mtx.tocoo())
+        for i, doc in enumerate(docs):
+            if i % 10 == 0:
+                print('creating count matrix for {} SVM model ..... {}%'.format(mode, round(i / len(docs) * 100, 2)))
+            for j, voc in enumerate(vocab):
+                voc_count = 0
+                for word in doc:
+                    if voc == word:
+                        voc_count += 1
+                count_mtx[i,j] = voc_count
 
         return count_mtx
 
@@ -424,30 +433,114 @@ class Analyse():
 class Classifier():
 
     def __init__(self):
-        pass
+        self.raw_data = self.load_raw_data()
 
-    def prepare_data(self):
-        p = Preprocessor()
-
+    def load_raw_data(self):
         with open('train_and_dev.tsv', 'r') as f:
             raw_text = f.readlines()
 
-        docs = {}
+        return raw_text
+
+    def shuffle_and_split(self, X, y):
+        dataset = list(zip(X.todense(),y))  #zip the count matrix and labels
+        random.shuffle(dataset)             #shuffle the cm-label tuples
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.9)
+
+        X_train_sparse = sparse.dok_matrix(X_train)
+        X_test_sparse = sparse.dok_matrix(X_test)
+
+        # return X_train_sparse, y_train, X_test_sparse, y_test
+        return X_train_sparse, X_test_sparse, y_train, y_test
+
+    def prepare_data(self, mode):
+        p = Preprocessor()
+
+        raw_text = self.raw_data
+
+        docs = []
         labels = []
         for docid, line in enumerate(raw_text):
             if docid % 5000 == 0:
                 print('building docs and preprocessing...{}%'.format(round(docid / len(raw_text) * 100, 2)))
             c, text = line.split('\t')
-            docs[docid] = p.preprocess_baseline(text)
-            labels.append(c)
+            if mode == 'baseline':
+                docs.append(p.preprocess_baseline(text))
+            elif mode == 'advanced':
+                docs.append(p.preprocess(text))
+            else:
+                raise ValueError('Wrong mode choice! It should be either baseline or advanced.')
+            labels.append(c.lower())
 
-        vocab = p.unique_from_array(list(docs.values()))
-        count_mtx = p.create_count_matrix(docs, vocab)
+        vocab = p.unique_from_array(docs)               #create vocab from the corpus
+        count_mtx = p.create_count_matrix(docs, vocab, mode)
+        encoded_labels = p.encode_labels(labels)        #encode corpus labels; ot=0, nt=1, quran=2
 
-    def load_cm(self):
-        # convert back to dok after loading
-        coo = sparse.load_npz('count_matrix.npz')
-        return coo.todok()
+        X_train, X_test, y_train, y_test = self.shuffle_and_split(count_mtx, encoded_labels)
+        # X_train, y_train, X_test, y_test =
+        #save shuffled and splitted data to disk
+        with open('X_train_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(X_train, f)
+        with open('X_test_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(X_test, f)
+        with open('y_train_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(y_train, f)
+        with open('y_test_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(y_test, f)
+
+    def load_data(self, mode):
+        with open('X_train_{}.pkl'.format(mode), 'rb') as f:
+            X_train = pickle.load(f)
+        with open('X_test_{}.pkl'.format(mode), 'rb') as f:
+            X_test = pickle.load(f)
+        with open('y_train_{}.pkl'.format(mode), 'rb') as f:
+            y_train = pickle.load(f)
+        with open('y_test_{}.pkl'.format(mode), 'rb') as f:
+            y_test = pickle.load(f)
+
+        return X_train, X_test, y_train, y_test
+
+    def train_svm(self, mode):
+        if mode == 'baseline':
+            c = 1000
+        elif mode == 'advanced':
+            c = 2
+        else:
+            raise ValueError('wrong mode to train SVM!!')
+
+        X_train, X_test, y_train, y_test = self.load_data(mode)
+        print(X_test)
+        model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
+
+        print("start traninig SVM!")
+        start_train = time.time()
+        model.fit(X_train,y_train)
+        print('total training time: {} seconds'.format(time.time() - start_train))
+
+        with open('svc_model_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(model, f)
+
+        self.evaluate_predictions(mode)
+
+    def load_svm_model(self, mode):
+        with open('svc_model_{}.pkl'.format(mode), 'rb') as f:
+            model = pickle.load(f)
+        return model
+
+    def evaluate_predictions(self, mode):
+        model = self.load_svm_model(mode)
+
+        _, X_test, _, y_test = self.load_data(mode)
+        y_pred = model.predict(X_test)
+
+        aa = precision_recall_fscore_support(y_pred=y_pred, y_true=y_test)
+        print('class=====>   OT  | NT     | QURAN')
+        print('precision: {}% | {}% | {}%'.format(round(aa[0][0]*100,2), round(aa[0][1]*100,2), round(aa[0][2]*100,2)))
+        print('recall:    {}% | {}% | {}%'.format(round(aa[1][0]*100,2), round(aa[1][1]*100,2), round(aa[1][2]*100,2)))
+        print('f-score:   {}% | {}% | {}%'.format(round(aa[2][0]*100,2), round(aa[2][1]*100,2), round(aa[2][2]*100,2)))
+
+    # def display_predictions(self, y_pred, ):
+
 
 a = Analyse()
 # corp = a.create_corpus()
@@ -461,6 +554,11 @@ a = Analyse()
 # a.train_lda(k=20)
 # a.lda_calc_average_score()
 # a.find_top_tokens()
+
 c = Classifier()
-# c.prepare_data()
-print(c.load_cm())
+modes = ['baseline', 'advanced']
+mode = modes[0]
+# c.prepare_data(mode)
+c.train_svm(mode)
+# c.evaluate_predictions(modes[0])
+# c.evaluate_predictions(modes[1])
