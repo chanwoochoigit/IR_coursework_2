@@ -104,8 +104,6 @@ class Preprocessor():
 
         return words_dup
 
-    # def create_vocab_vector(self, vocab, words):
-
 
     #preprocess 1-d list of text
     def preprocess(self, data_chunk):
@@ -477,7 +475,7 @@ class Classifier():
         encoded_labels = p.encode_labels(labels)        #encode corpus labels; ot=0, nt=1, quran=2
 
         X_train, X_test, y_train, y_test = self.shuffle_and_split(count_mtx, encoded_labels)
-        # X_train, y_train, X_test, y_test =
+
         #save shuffled and splitted data to disk
         with open('X_train_{}.pkl'.format(mode), 'wb') as f:
             pickle.dump(X_train, f)
@@ -509,7 +507,6 @@ class Classifier():
             raise ValueError('wrong mode to train SVM!!')
 
         X_train, X_test, y_train, y_test = self.load_data(mode)
-        print(X_test)
         model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
 
         print("start traninig SVM!")
@@ -534,10 +531,14 @@ class Classifier():
         y_pred = model.predict(X_test)
 
         aa = precision_recall_fscore_support(y_pred=y_pred, y_true=y_test)
-        print('class=====>   OT  | NT     | QURAN')
-        print('precision: {}% | {}% | {}%'.format(round(aa[0][0]*100,2), round(aa[0][1]*100,2), round(aa[0][2]*100,2)))
-        print('recall:    {}% | {}% | {}%'.format(round(aa[1][0]*100,2), round(aa[1][1]*100,2), round(aa[1][2]*100,2)))
-        print('f-score:   {}% | {}% | {}%'.format(round(aa[2][0]*100,2), round(aa[2][1]*100,2), round(aa[2][2]*100,2)))
+        print('             OT   |   NT   |   QU   | Overall')
+        print('precision: {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[0][0]*100,2), round(aa[0][1]*100,2), round(aa[0][2]*100,2),
+              round((aa[0][0] * 100 + aa[0][1] * 100 + aa[0][2] * 100)/ 3, 2)))
+        print('recall:    {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[1][0]*100,2), round(aa[1][1]*100,2), round(aa[1][2]*100,2),
+              round((aa[1][0] * 100 + aa[1][1] * 100 + aa[1][2] * 100) / 3, 2)))
+        print('f-score:   {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[2][0]*100,2), round(aa[2][1]*100,2), round(aa[2][2]*100,2),
+              round((aa[2][0] * 100 + aa[2][1] * 100 + aa[2][2] * 100) / 3, 2)))
+        print('______________________________________________')
 
     # def display_predictions(self, y_pred, ):
 
@@ -557,8 +558,8 @@ a = Analyse()
 
 c = Classifier()
 modes = ['baseline', 'advanced']
-mode = modes[0]
+mode = modes[1]
 # c.prepare_data(mode)
-c.train_svm(mode)
-# c.evaluate_predictions(modes[0])
-# c.evaluate_predictions(modes[1])
+# c.train_svm(mode)
+c.evaluate_predictions(modes[0])
+c.evaluate_predictions(modes[1])
