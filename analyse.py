@@ -71,7 +71,12 @@ class Preprocessor():
                 print('creating count matrix for {} SVM model ..... {}%'.format(mode, round(i / len(docs) * 100, 2)))
             count_dict = Counter(docs[i])
             for word in count_dict.keys():
-                count_mtx[i, vocab[word]] = count_dict[word]
+                if mode == 'baseline':
+                    count_mtx[i, vocab[word]] = count_dict[word]
+                elif mode == 'advanced':
+                    count_mtx[i, vocab[word]] = count_dict[word] * 1512
+                else:
+                    raise ValueError('wrong mode choice!')
         return count_mtx
 
     def trim_text(self, text):
@@ -525,12 +530,12 @@ class Classifier():
         if mode == 'baseline':
             c = 1000
         elif mode == 'advanced':
-            c = 2
+            c = 20
         else:
             raise ValueError('wrong mode to train SVM!!')
 
         X_train, X_test, y_train, y_test = self.load_data(mode)
-        model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
+        model = SVC(C=c) #init sklearn.svm.SVC
 
         print("start traninig SVM!")
         start_train = time.time()
