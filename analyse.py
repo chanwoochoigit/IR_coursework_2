@@ -8,6 +8,7 @@ import json
 from random import randrange
 from sklearn.svm import SVC
 import numpy as np
+from collections import Counter
 from gensim.corpora.dictionary import Dictionary
 from gensim.test.utils import datapath
 from gensim.models import LdaModel
@@ -29,11 +30,26 @@ class Preprocessor():
         return stop_words
 
     def unique_from_array(self, items):
-        items_1d = list(itertools.chain.from_iterable(items))
-        unique_dump = []
-        [unique_dump.append(x) for x in items_1d if x not in unique_dump]
 
-        return unique_dump
+        items_1d = list(itertools.chain.from_iterable(items.values()))
+        vocab = {}
+        for i, x in enumerate(items_1d):
+            if x not in vocab.keys():
+                vocab[x] = 0
+
+        for i, k in enumerate(vocab.keys()):
+            vocab[k] = i
+        # using a rather unique structure to run faster
+        # vocab[word] = word_index
+
+        return vocab
+
+    #convert word list to dictionary for speeding purposes
+    def dictionify(self, items):
+        word_dict = {}
+        for i, word in enumerate(items):
+            word_dict[i] = word
+        return word_dict
 
     def encode_labels(self, labels):
         labels_encoded = []
@@ -49,18 +65,13 @@ class Preprocessor():
         return labels_encoded
 
     def create_count_matrix(self, docs, vocab, mode):
-        count_mtx = sparse.dok_matrix((len(docs), len(vocab)), dtype=int)
-
-        for i, doc in enumerate(docs):
-            if i % 10 == 0:
+        count_mtx = sparse.dok_matrix((len(docs), len(vocab)), dtype='uint8')
+        for i in docs.keys():
+            if i % 3000 == 0:
                 print('creating count matrix for {} SVM model ..... {}%'.format(mode, round(i / len(docs) * 100, 2)))
-            for j, voc in enumerate(vocab):
-                voc_count = 0
-                for word in doc:
-                    if voc == word:
-                        voc_count += 1
-                count_mtx[i,j] = voc_count
-
+            count_dict = Counter(docs[i])
+            for word in count_dict.keys():
+                count_mtx[i, vocab[word]] = count_dict[word]
         return count_mtx
 
     def trim_text(self, text):
@@ -114,10 +125,10 @@ class Preprocessor():
         words_dup = self.tokenise(text_str)
 
         #remove stop words
-        words_dup_nostop = self.remove_stopwords(words_dup)
+        # words_dup_nostop = self.remove_stopwords(words_dup)
 
         # """normalisation"""
-        words_stemmed = self.stem_data(words_dup_nostop)
+        words_stemmed = self.stem_data(words_dup)
 
         #remove empty quotation marks ('')
         no_empties = self.remove_void(words_stemmed)
@@ -448,14 +459,15 @@ class Classifier():
         X_train_sparse = sparse.dok_matrix(X_train)
         X_test_sparse = sparse.dok_matrix(X_test)
 
-        # return X_train_sparse, y_train, X_test_sparse, y_test
         return X_train_sparse, X_test_sparse, y_train, y_test
+
 
     def prepare_data(self, mode):
         p = Preprocessor()
 
         raw_text = self.raw_data
 
+        ####collect words from raw text#####################################################################
         docs = []
         labels = []
         for docid, line in enumerate(raw_text):
@@ -469,10 +481,21 @@ class Classifier():
             else:
                 raise ValueError('Wrong mode choice! It should be either baseline or advanced.')
             labels.append(c.lower())
+        ####################################################################################################
 
-        vocab = p.unique_from_array(docs)               #create vocab from the corpus
+        # create vocab and count matrix ####################################################################
+        if mode == 'baseline':
+            vocab = p.unique_from_array(p.dictionify(docs))               #create vocab from the corpus
+            docs = p.dictionify(docs)
+        elif mode == 'advanced':
+            docs = p.dictionify(docs)           #for advanced model we use bigram word vectors
+            vocab = p.unique_from_array(docs)
+        else:
+            raise ValueError('Wrong mode choice! It should be either baseline or advanced.')
+
         count_mtx = p.create_count_matrix(docs, vocab, mode)
         encoded_labels = p.encode_labels(labels)        #encode corpus labels; ot=0, nt=1, quran=2
+        ####################################################################################################
 
         X_train, X_test, y_train, y_test = self.shuffle_and_split(count_mtx, encoded_labels)
 
@@ -531,7 +554,7 @@ class Classifier():
         y_pred = model.predict(X_test)
 
         aa = precision_recall_fscore_support(y_pred=y_pred, y_true=y_test)
-        print('             OT   |   NT   |   QU   | Overall')
+        print('[{}]   OT   |   NT   |   QU   | Overall'.format(mode))
         print('precision: {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[0][0]*100,2), round(aa[0][1]*100,2), round(aa[0][2]*100,2),
               round((aa[0][0] * 100 + aa[0][1] * 100 + aa[0][2] * 100)/ 3, 2)))
         print('recall:    {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[1][0]*100,2), round(aa[1][1]*100,2), round(aa[1][2]*100,2),
@@ -539,8 +562,6 @@ class Classifier():
         print('f-score:   {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[2][0]*100,2), round(aa[2][1]*100,2), round(aa[2][2]*100,2),
               round((aa[2][0] * 100 + aa[2][1] * 100 + aa[2][2] * 100) / 3, 2)))
         print('______________________________________________')
-
-    # def display_predictions(self, y_pred, ):
 
 
 a = Analyse()
@@ -558,8 +579,8 @@ a = Analyse()
 
 c = Classifier()
 modes = ['baseline', 'advanced']
-mode = modes[1]
-# c.prepare_data(mode)
-# c.train_svm(mode)
-c.evaluate_predictions(modes[0])
-c.evaluate_predictions(modes[1])
+m = 1
+mode = modes[m]
+c.prepare_data(mode)
+c.train_svm(mode)
+c.evaluate_predictions(modes[m^1])
