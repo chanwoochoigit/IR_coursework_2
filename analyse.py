@@ -6,6 +6,8 @@ import time
 from collections import defaultdict
 import json
 from random import randrange
+
+from sklearn.metrics import classification_report
 from sklearn.svm import SVC
 import numpy as np
 from collections import Counter
@@ -557,17 +559,7 @@ class Classifier():
 
         _, X_test, _, y_test = self.load_data(mode)
         y_pred = model.predict(X_test)
-
-        aa = precision_recall_fscore_support(y_pred=y_pred, y_true=y_test)
-        print('[{}]   OT   |   NT   |   QU   | Overall'.format(mode))
-        print('precision: {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[0][0]*100,2), round(aa[0][1]*100,2), round(aa[0][2]*100,2),
-              round((aa[0][0] * 100 + aa[0][1] * 100 + aa[0][2] * 100)/ 3, 2)))
-        print('recall:    {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[1][0]*100,2), round(aa[1][1]*100,2), round(aa[1][2]*100,2),
-              round((aa[1][0] * 100 + aa[1][1] * 100 + aa[1][2] * 100) / 3, 2)))
-        print('f-score:   {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[2][0]*100,2), round(aa[2][1]*100,2), round(aa[2][2]*100,2),
-              round((aa[2][0] * 100 + aa[2][1] * 100 + aa[2][2] * 100) / 3, 2)))
-        print('______________________________________________')
-
+        print(classification_report(y_test, y_pred))
 
 a = Analyse()
 # corp = a.create_corpus()
