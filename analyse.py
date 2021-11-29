@@ -1,13 +1,13 @@
 import itertools
 import random
 import re
-import sys
 import time
 from collections import defaultdict
 import json
-from random import randrange
-from sklearn.svm import SVC
+from sklearn.metrics import classification_report
+from sklearn.svm import SVC, LinearSVC
 import numpy as np
+from collections import Counter
 from gensim.corpora.dictionary import Dictionary
 from gensim.test.utils import datapath
 from gensim.models import LdaModel
@@ -16,8 +16,22 @@ from math import log2
 from scipy import sparse
 #my preprocessing module from coursework 1
 import pickle
-from sklearn.metrics import precision_recall_fscore_support
 from sklearn.model_selection import train_test_split
+
+#imports for neural network classifier for advanced model
+from transformers import BertTokenizer
+import tensorflow as tf
+from transformers import TFBertForSequenceClassification
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Activation, Flatten, BatchNormalization
+from tensorflow.keras.layers import LeakyReLU
+from imblearn.over_sampling import SMOTE
+from tensorflow import cast, float32
+import tensorflow.keras.backend as K
+from tensorflow.keras.optimizers import SGD
+from tensorflow.keras.models import model_from_json
+
+
 class Preprocessor():
 
     def __init__(self):
@@ -29,11 +43,26 @@ class Preprocessor():
         return stop_words
 
     def unique_from_array(self, items):
-        items_1d = list(itertools.chain.from_iterable(items))
-        unique_dump = []
-        [unique_dump.append(x) for x in items_1d if x not in unique_dump]
 
-        return unique_dump
+        items_1d = list(itertools.chain.from_iterable(items.values()))
+        vocab = {}
+        for i, x in enumerate(items_1d):
+            if x not in vocab.keys():
+                vocab[x] = 0
+
+        for i, k in enumerate(vocab.keys()):
+            vocab[k] = i
+        # using a rather unique structure to run faster
+        # vocab[word] = word_index
+
+        return vocab
+
+    #convert word list to dictionary for speeding purposes
+    def dictionify(self, items):
+        word_dict = {}
+        for i, word in enumerate(items):
+            word_dict[i] = word
+        return word_dict
 
     def encode_labels(self, labels):
         labels_encoded = []
@@ -49,18 +78,18 @@ class Preprocessor():
         return labels_encoded
 
     def create_count_matrix(self, docs, vocab, mode):
-        count_mtx = sparse.dok_matrix((len(docs), len(vocab)), dtype=int)
-
-        for i, doc in enumerate(docs):
-            if i % 10 == 0:
+        count_mtx = sparse.dok_matrix((len(docs), len(vocab)), dtype='uint8')
+        for i in docs.keys():
+            if i % 3000 == 0:
                 print('creating count matrix for {} SVM model ..... {}%'.format(mode, round(i / len(docs) * 100, 2)))
-            for j, voc in enumerate(vocab):
-                voc_count = 0
-                for word in doc:
-                    if voc == word:
-                        voc_count += 1
-                count_mtx[i,j] = voc_count
-
+            count_dict = Counter(docs[i])
+            for word in count_dict.keys():
+                if mode == 'baseline':
+                    count_mtx[i, vocab[word]] = count_dict[word]
+                elif mode == 'advanced':
+                    count_mtx[i, vocab[word]] = count_dict[word] * 1000
+                else:
+                    raise ValueError('wrong mode choice!')
         return count_mtx
 
     def trim_text(self, text):
@@ -95,14 +124,55 @@ class Preprocessor():
 
         return clean
 
-    def preprocess_baseline(self, data_chunk):
+    def create_bigram_vectors(self, uni_vectors):
+        bigram_vector = {}
+        for vi, v in enumerate(uni_vectors):
+            bv = []
+            for i in range(len(v)-1):
+                bv.append(str(v[i]+'_'+str(v[i+1])))
+            bigram_vector[vi] = bv
+        return bigram_vector
+
+    def preprocess_baseline(self, document):
         # trim
-        text_str = self.trim_text(data_chunk)
+        text_str = self.trim_text(document)
 
         # tokenise
         words_dup = self.tokenise(text_str)
 
         return words_dup
+
+    #arbitrarily limit word length for  better accuracy (heuristic for lemmitisation)
+    def limit_word_length(self, word_list, limit, offset):
+        cut_text = []
+        for word in word_list:
+            if len(word) > limit:
+                cut_text.append(word[:limit-offset])
+            else:
+                cut_text.append(word)
+
+        return cut_text
+
+    def map_data_to_dict(self, input_ids, attention_masks, token_type_ids, label):
+        return {
+                   "input_ids": input_ids,
+                   "token_type_ids": token_type_ids,
+                   "attention_mask": attention_masks,
+               }, label
+
+    def preprocess_bert(self, document):
+        max_length = 512
+        tokeniser = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
+
+        bert_input = tokeniser.encode_plus(
+            document,
+            add_special_tokens=True,  # add [CLS], [SEP]
+            max_length=max_length,
+            pad_to_max_length=True,  # add [PAD] tokens
+            return_attention_mask=True,  # add attention mask to avoid focusing on pad tokens
+            truncation=True
+        )
+        return bert_input
 
 
     #preprocess 1-d list of text
@@ -114,13 +184,16 @@ class Preprocessor():
         words_dup = self.tokenise(text_str)
 
         #remove stop words
-        words_dup_nostop = self.remove_stopwords(words_dup)
+        # words_dup_nostop = self.remove_stopwords(words_dup)
 
         # """normalisation"""
-        words_stemmed = self.stem_data(words_dup_nostop)
+        words_stemmed = self.stem_data(words_dup)
+
+        # arbitrary cut to 4 chars if word length is longer than 5
+        cut_off = self.limit_word_length(words_stemmed, 5, 1)
 
         #remove empty quotation marks ('')
-        no_empties = self.remove_void(words_stemmed)
+        no_empties = self.remove_void(cut_off)
 
         return no_empties
 
@@ -443,36 +516,80 @@ class Classifier():
         dataset = list(zip(X.todense(),y))  #zip the count matrix and labels
         random.shuffle(dataset)             #shuffle the cm-label tuples
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.9)
+        X_test, X_train, y_test, y_train = train_test_split(X, y, test_size=0.9)
 
         X_train_sparse = sparse.dok_matrix(X_train)
         X_test_sparse = sparse.dok_matrix(X_test)
 
-        # return X_train_sparse, y_train, X_test_sparse, y_test
         return X_train_sparse, X_test_sparse, y_train, y_test
+
+    def save_bert(self, bert_data):
+        with open('bert_data.pkl', 'wb') as f:
+            pickle.dump(bert_data, f)
+
+    def load_bert_data(self):
+        with open('bert_data.pkl' ,'rb') as f:
+            data = pickle.load(f)
+            print(data)
 
     def prepare_data(self, mode):
         p = Preprocessor()
-
         raw_text = self.raw_data
 
+        ####collect words from raw text#####################################################################
         docs = []
         labels = []
+
+        ### lists used for BERT formatting ###
+        input_ids_list = []
+        token_type_ids_list = []
+        attention_mask_list = []
+        label_list = []
+        ######################################
+
         for docid, line in enumerate(raw_text):
             if docid % 5000 == 0:
                 print('building docs and preprocessing...{}%'.format(round(docid / len(raw_text) * 100, 2)))
-            c, text = line.split('\t')
+            c, document = line.split('\t')
             if mode == 'baseline':
-                docs.append(p.preprocess_baseline(text))
+                docs.append(p.preprocess_baseline(document))
             elif mode == 'advanced':
-                docs.append(p.preprocess(text))
+                docs.append(p.preprocess(document))
+            elif mode == 'advanced_bert':
+                print('preprocessing sentences to BERT format ... {}%'.format(round(docid/len(raw_text)*100,5)))
+                if len(document) > 512:
+                    continue
+                bert_encoded = p.preprocess_bert(document)
+                input_ids_list.append(bert_encoded['input_ids'])
+                token_type_ids_list.append(bert_encoded['token_type_ids'])
+                attention_mask_list.append(bert_encoded['attention_mask'])
+                label_list.append([bert_encoded])
             else:
                 raise ValueError('Wrong mode choice! It should be either baseline or advanced.')
             labels.append(c.lower())
+        ####################################################################################################
+        #create bert data from lists
+        # bert_docs = tf.data.Dataset.from_tensor_slices((input_ids_list, attention_mask_list, token_type_ids_list, label_list)) \
+        #             .map(p.map_example_to_dict)
+        bert_docs = p.map_data_to_dict(input_ids_list, attention_mask_list, token_type_ids_list, label_list)
 
-        vocab = p.unique_from_array(docs)               #create vocab from the corpus
+        # create vocab and count matrix ####################################################################
+        if mode == 'baseline':
+            vocab = p.unique_from_array(p.dictionify(docs))               #create vocab from the corpus
+            docs = p.dictionify(docs)
+        elif mode == 'advanced':
+            docs = p.dictionify(docs)           #convert docs to dictionary
+            vocab = p.unique_from_array(docs)
+        elif mode == 'advanced_bert':
+            print(bert_docs)
+            self.save_bert(bert_docs)
+            # self.train_bert(bert_docs)
+            return 0
+        else:
+            raise ValueError('Wrong mode choice! It should be either baseline or advanced.')
         count_mtx = p.create_count_matrix(docs, vocab, mode)
         encoded_labels = p.encode_labels(labels)        #encode corpus labels; ot=0, nt=1, quran=2
+        ####################################################################################################
 
         X_train, X_test, y_train, y_test = self.shuffle_and_split(count_mtx, encoded_labels)
 
@@ -498,49 +615,55 @@ class Classifier():
 
         return X_train, X_test, y_train, y_test
 
-    def train_svm(self, mode):
+    def train_svm(self, mode, classifier='svm'):
         if mode == 'baseline':
             c = 1000
         elif mode == 'advanced':
-            c = 2
+            c = 10
         else:
             raise ValueError('wrong mode to train SVM!!')
 
         X_train, X_test, y_train, y_test = self.load_data(mode)
-        model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
+
+        if classifier == 'linsvm':
+            model = LinearSVC(C=c, max_iter=5000, verbose=True) #init sklearn.svm.LinearSVC for advanced model
+        else:
+            model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
 
         print("start traninig SVM!")
         start_train = time.time()
         model.fit(X_train,y_train)
         print('total training time: {} seconds'.format(time.time() - start_train))
 
-        with open('svc_model_{}.pkl'.format(mode), 'wb') as f:
+        with open('{}_model_{}.pkl'.format(classifier, mode), 'wb') as f:
             pickle.dump(model, f)
 
-        self.evaluate_predictions(mode)
+        self.evaluate_predictions(mode, classifier)
 
-    def load_svm_model(self, mode):
-        with open('svc_model_{}.pkl'.format(mode), 'rb') as f:
+    def train_bert(self, bert_inputs):
+        batch_size = 5
+        print(bert_inputs)
+        training_data = bert_inputs.shuffle().batch(batch_size=batch_size)
+        learning_rate = 2e-5
+        epoch = 10
+        # model = TFBertForSequenceClassification.from_pretrained('bert-base-uncased')
+        # optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, epsilon=1e-08)
+        # loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+        # metric = tf.keras.metrics.SparseCategoricalAccuracy('accuracy')
+        # model.compile(optimizer=optimizer, loss=loss, metrics=[metric])
+        # # history = model.fit(bert_inputs, epochs=epoch, validation_data=ds_test_encoded)
+
+    def load_svm_model(self, mode, classifier='svm'):
+        with open('{}_model_{}.pkl'.format(classifier, mode), 'rb') as f:
             model = pickle.load(f)
         return model
 
-    def evaluate_predictions(self, mode):
-        model = self.load_svm_model(mode)
-
+    def evaluate_predictions(self, mode, classifier='svm'):
+        model = self.load_svm_model(mode, classifier)
         _, X_test, _, y_test = self.load_data(mode)
         y_pred = model.predict(X_test)
-
-        aa = precision_recall_fscore_support(y_pred=y_pred, y_true=y_test)
-        print('             OT   |   NT   |   QU   | Overall')
-        print('precision: {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[0][0]*100,2), round(aa[0][1]*100,2), round(aa[0][2]*100,2),
-              round((aa[0][0] * 100 + aa[0][1] * 100 + aa[0][2] * 100)/ 3, 2)))
-        print('recall:    {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[1][0]*100,2), round(aa[1][1]*100,2), round(aa[1][2]*100,2),
-              round((aa[1][0] * 100 + aa[1][1] * 100 + aa[1][2] * 100) / 3, 2)))
-        print('f-score:   {:.2f}% | {:.2f}% | {:.2f}% | {:.2f}%'.format(round(aa[2][0]*100,2), round(aa[2][1]*100,2), round(aa[2][2]*100,2),
-              round((aa[2][0] * 100 + aa[2][1] * 100 + aa[2][2] * 100) / 3, 2)))
-        print('______________________________________________')
-
-    # def display_predictions(self, y_pred, ):
+        print('==========================[{}]=========================='.format(mode))
+        print(classification_report(y_test, y_pred, digits=4))
 
 
 a = Analyse()
@@ -557,9 +680,9 @@ a = Analyse()
 # a.find_top_tokens()
 
 c = Classifier()
-modes = ['baseline', 'advanced']
-mode = modes[1]
-# c.prepare_data(mode)
+modes = ['baseline', 'advanced', 'advanced_bert']
+m = 2
+mode = modes[m]
+c.prepare_data(mode)
 # c.train_svm(mode)
-c.evaluate_predictions(modes[0])
-c.evaluate_predictions(modes[1])
+# c.evaluate_predictions(modes[m^1])
