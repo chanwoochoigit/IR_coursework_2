@@ -1,14 +1,11 @@
 import itertools
 import random
 import re
-import sys
 import time
 from collections import defaultdict
 import json
-from random import randrange
-
 from sklearn.metrics import classification_report
-from sklearn.svm import SVC
+from sklearn.svm import SVC, LinearSVC
 import numpy as np
 from collections import Counter
 from gensim.corpora.dictionary import Dictionary
@@ -19,8 +16,18 @@ from math import log2
 from scipy import sparse
 #my preprocessing module from coursework 1
 import pickle
-from sklearn.metrics import precision_recall_fscore_support
 from sklearn.model_selection import train_test_split
+
+#imports for neural network classifier for advanced model
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Activation, Flatten, BatchNormalization
+from tensorflow.keras.layers import LeakyReLU
+from imblearn.over_sampling import SMOTE
+from tensorflow import cast, float32
+import tensorflow.keras.backend as K
+from tensorflow.keras.optimizers import SGD
+from tensorflow.keras.models import model_from_json
+
 class Preprocessor():
 
     def __init__(self):
@@ -76,7 +83,7 @@ class Preprocessor():
                 if mode == 'baseline':
                     count_mtx[i, vocab[word]] = count_dict[word]
                 elif mode == 'advanced':
-                    count_mtx[i, vocab[word]] = count_dict[word] * 1512
+                    count_mtx[i, vocab[word]] = count_dict[word] * 1000
                 else:
                     raise ValueError('wrong mode choice!')
         return count_mtx
@@ -113,6 +120,15 @@ class Preprocessor():
 
         return clean
 
+    def create_bigram_vectors(self, uni_vectors):
+        bigram_vector = {}
+        for vi, v in enumerate(uni_vectors):
+            bv = []
+            for i in range(len(v)-1):
+                bv.append(str(v[i]+'_'+str(v[i+1])))
+            bigram_vector[vi] = bv
+        return bigram_vector
+
     def preprocess_baseline(self, data_chunk):
         # trim
         text_str = self.trim_text(data_chunk)
@@ -122,6 +138,15 @@ class Preprocessor():
 
         return words_dup
 
+    def limit_word_length(self, word_list, limit, offset):
+        cut_text = []
+        for word in word_list:
+            if len(word) > limit:
+                cut_text.append(word[:limit-offset])
+            else:
+                cut_text.append(word)
+
+        return cut_text
 
     #preprocess 1-d list of text
     def preprocess(self, data_chunk):
@@ -136,6 +161,9 @@ class Preprocessor():
 
         # """normalisation"""
         words_stemmed = self.stem_data(words_dup)
+
+        # arbitrary cut to 4 chars if word length is longer than 5
+        # cut_off = self.limit_word_length(words_stemmed, 5, 1)
 
         #remove empty quotation marks ('')
         no_empties = self.remove_void(words_stemmed)
@@ -461,7 +489,7 @@ class Classifier():
         dataset = list(zip(X.todense(),y))  #zip the count matrix and labels
         random.shuffle(dataset)             #shuffle the cm-label tuples
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.9)
+        X_test, X_train, y_test, y_train = train_test_split(X, y, test_size=0.9)
 
         X_train_sparse = sparse.dok_matrix(X_train)
         X_test_sparse = sparse.dok_matrix(X_test)
@@ -471,7 +499,6 @@ class Classifier():
 
     def prepare_data(self, mode):
         p = Preprocessor()
-
         raw_text = self.raw_data
 
         ####collect words from raw text#####################################################################
@@ -495,11 +522,10 @@ class Classifier():
             vocab = p.unique_from_array(p.dictionify(docs))               #create vocab from the corpus
             docs = p.dictionify(docs)
         elif mode == 'advanced':
-            docs = p.dictionify(docs)           #for advanced model we use bigram word vectors
+            docs = p.dictionify(docs)           #convert docs to dictionary
             vocab = p.unique_from_array(docs)
         else:
             raise ValueError('Wrong mode choice! It should be either baseline or advanced.')
-
         count_mtx = p.create_count_matrix(docs, vocab, mode)
         encoded_labels = p.encode_labels(labels)        #encode corpus labels; ot=0, nt=1, quran=2
         ####################################################################################################
@@ -528,38 +554,43 @@ class Classifier():
 
         return X_train, X_test, y_train, y_test
 
-    def train_svm(self, mode):
+    def train_svm(self, mode, classifier='svm'):
         if mode == 'baseline':
             c = 1000
         elif mode == 'advanced':
-            c = 20
+            c = 10
         else:
             raise ValueError('wrong mode to train SVM!!')
 
         X_train, X_test, y_train, y_test = self.load_data(mode)
-        model = SVC(C=c) #init sklearn.svm.SVC
+
+        if classifier == 'linsvm':
+            model = LinearSVC(C=c, max_iter=3000, verbose=True) #init sklearn.svm.LinearSVC for advanced model
+        else:
+            model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
 
         print("start traninig SVM!")
         start_train = time.time()
         model.fit(X_train,y_train)
         print('total training time: {} seconds'.format(time.time() - start_train))
 
-        with open('svc_model_{}.pkl'.format(mode), 'wb') as f:
+        with open('{}_model_{}.pkl'.format(classifier, mode), 'wb') as f:
             pickle.dump(model, f)
 
-        self.evaluate_predictions(mode)
+        self.evaluate_predictions(mode, classifier)
 
-    def load_svm_model(self, mode):
-        with open('svc_model_{}.pkl'.format(mode), 'rb') as f:
+    def load_svm_model(self, mode, classifier='svm'):
+        with open('{}_model_{}.pkl'.format(classifier, mode), 'rb') as f:
             model = pickle.load(f)
         return model
 
-    def evaluate_predictions(self, mode):
-        model = self.load_svm_model(mode)
-
+    def evaluate_predictions(self, mode, classifier='svm'):
+        model = self.load_svm_model(mode, classifier)
         _, X_test, _, y_test = self.load_data(mode)
         y_pred = model.predict(X_test)
-        print(classification_report(y_test, y_pred))
+        print('==========================[{}]=========================='.format(mode))
+        print(classification_report(y_test, y_pred, digits=4))
+
 
 a = Analyse()
 # corp = a.create_corpus()
@@ -578,6 +609,6 @@ c = Classifier()
 modes = ['baseline', 'advanced']
 m = 1
 mode = modes[m]
-c.prepare_data(mode)
+# c.prepare_data(mode)
 c.train_svm(mode)
 c.evaluate_predictions(modes[m^1])
