@@ -19,6 +19,9 @@ import pickle
 from sklearn.model_selection import train_test_split
 
 #imports for neural network classifier for advanced model
+from transformers import BertTokenizer
+import tensorflow as tf
+from transformers import TFBertForSequenceClassification
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Activation, Flatten, BatchNormalization
 from tensorflow.keras.layers import LeakyReLU
@@ -27,6 +30,7 @@ from tensorflow import cast, float32
 import tensorflow.keras.backend as K
 from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.models import model_from_json
+
 
 class Preprocessor():
 
@@ -129,15 +133,16 @@ class Preprocessor():
             bigram_vector[vi] = bv
         return bigram_vector
 
-    def preprocess_baseline(self, data_chunk):
+    def preprocess_baseline(self, document):
         # trim
-        text_str = self.trim_text(data_chunk)
+        text_str = self.trim_text(document)
 
         # tokenise
         words_dup = self.tokenise(text_str)
 
         return words_dup
 
+    #arbitrarily limit word length for  better accuracy (heuristic for lemmitisation)
     def limit_word_length(self, word_list, limit, offset):
         cut_text = []
         for word in word_list:
@@ -147,6 +152,28 @@ class Preprocessor():
                 cut_text.append(word)
 
         return cut_text
+
+    def map_data_to_dict(self, input_ids, attention_masks, token_type_ids, label):
+        return {
+                   "input_ids": input_ids,
+                   "token_type_ids": token_type_ids,
+                   "attention_mask": attention_masks,
+               }, label
+
+    def preprocess_bert(self, document):
+        max_length = 512
+        tokeniser = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
+
+        bert_input = tokeniser.encode_plus(
+            document,
+            add_special_tokens=True,  # add [CLS], [SEP]
+            max_length=max_length,
+            pad_to_max_length=True,  # add [PAD] tokens
+            return_attention_mask=True,  # add attention mask to avoid focusing on pad tokens
+            truncation=True
+        )
+        return bert_input
+
 
     #preprocess 1-d list of text
     def preprocess(self, data_chunk):
@@ -163,10 +190,10 @@ class Preprocessor():
         words_stemmed = self.stem_data(words_dup)
 
         # arbitrary cut to 4 chars if word length is longer than 5
-        # cut_off = self.limit_word_length(words_stemmed, 5, 1)
+        cut_off = self.limit_word_length(words_stemmed, 5, 1)
 
         #remove empty quotation marks ('')
-        no_empties = self.remove_void(words_stemmed)
+        no_empties = self.remove_void(cut_off)
 
         return no_empties
 
@@ -496,6 +523,14 @@ class Classifier():
 
         return X_train_sparse, X_test_sparse, y_train, y_test
 
+    def save_bert(self, bert_data):
+        with open('bert_data.pkl', 'wb') as f:
+            pickle.dump(bert_data, f)
+
+    def load_bert_data(self):
+        with open('bert_data.pkl' ,'rb') as f:
+            data = pickle.load(f)
+            print(data)
 
     def prepare_data(self, mode):
         p = Preprocessor()
@@ -504,18 +539,39 @@ class Classifier():
         ####collect words from raw text#####################################################################
         docs = []
         labels = []
+
+        ### lists used for BERT formatting ###
+        input_ids_list = []
+        token_type_ids_list = []
+        attention_mask_list = []
+        label_list = []
+        ######################################
+
         for docid, line in enumerate(raw_text):
             if docid % 5000 == 0:
                 print('building docs and preprocessing...{}%'.format(round(docid / len(raw_text) * 100, 2)))
-            c, text = line.split('\t')
+            c, document = line.split('\t')
             if mode == 'baseline':
-                docs.append(p.preprocess_baseline(text))
+                docs.append(p.preprocess_baseline(document))
             elif mode == 'advanced':
-                docs.append(p.preprocess(text))
+                docs.append(p.preprocess(document))
+            elif mode == 'advanced_bert':
+                print('preprocessing sentences to BERT format ... {}%'.format(round(docid/len(raw_text)*100,5)))
+                if len(document) > 512:
+                    continue
+                bert_encoded = p.preprocess_bert(document)
+                input_ids_list.append(bert_encoded['input_ids'])
+                token_type_ids_list.append(bert_encoded['token_type_ids'])
+                attention_mask_list.append(bert_encoded['attention_mask'])
+                label_list.append([bert_encoded])
             else:
                 raise ValueError('Wrong mode choice! It should be either baseline or advanced.')
             labels.append(c.lower())
         ####################################################################################################
+        #create bert data from lists
+        # bert_docs = tf.data.Dataset.from_tensor_slices((input_ids_list, attention_mask_list, token_type_ids_list, label_list)) \
+        #             .map(p.map_example_to_dict)
+        bert_docs = p.map_data_to_dict(input_ids_list, attention_mask_list, token_type_ids_list, label_list)
 
         # create vocab and count matrix ####################################################################
         if mode == 'baseline':
@@ -524,6 +580,11 @@ class Classifier():
         elif mode == 'advanced':
             docs = p.dictionify(docs)           #convert docs to dictionary
             vocab = p.unique_from_array(docs)
+        elif mode == 'advanced_bert':
+            print(bert_docs)
+            self.save_bert(bert_docs)
+            # self.train_bert(bert_docs)
+            return 0
         else:
             raise ValueError('Wrong mode choice! It should be either baseline or advanced.')
         count_mtx = p.create_count_matrix(docs, vocab, mode)
@@ -565,7 +626,7 @@ class Classifier():
         X_train, X_test, y_train, y_test = self.load_data(mode)
 
         if classifier == 'linsvm':
-            model = LinearSVC(C=c, max_iter=3000, verbose=True) #init sklearn.svm.LinearSVC for advanced model
+            model = LinearSVC(C=c, max_iter=5000, verbose=True) #init sklearn.svm.LinearSVC for advanced model
         else:
             model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
 
@@ -578,6 +639,19 @@ class Classifier():
             pickle.dump(model, f)
 
         self.evaluate_predictions(mode, classifier)
+
+    def train_bert(self, bert_inputs):
+        batch_size = 5
+        print(bert_inputs)
+        training_data = bert_inputs.shuffle().batch(batch_size=batch_size)
+        learning_rate = 2e-5
+        epoch = 10
+        # model = TFBertForSequenceClassification.from_pretrained('bert-base-uncased')
+        # optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, epsilon=1e-08)
+        # loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+        # metric = tf.keras.metrics.SparseCategoricalAccuracy('accuracy')
+        # model.compile(optimizer=optimizer, loss=loss, metrics=[metric])
+        # # history = model.fit(bert_inputs, epochs=epoch, validation_data=ds_test_encoded)
 
     def load_svm_model(self, mode, classifier='svm'):
         with open('{}_model_{}.pkl'.format(classifier, mode), 'rb') as f:
@@ -606,9 +680,9 @@ a = Analyse()
 # a.find_top_tokens()
 
 c = Classifier()
-modes = ['baseline', 'advanced']
-m = 1
+modes = ['baseline', 'advanced', 'advanced_bert']
+m = 2
 mode = modes[m]
-# c.prepare_data(mode)
-c.train_svm(mode)
-c.evaluate_predictions(modes[m^1])
+c.prepare_data(mode)
+# c.train_svm(mode)
+# c.evaluate_predictions(modes[m^1])
