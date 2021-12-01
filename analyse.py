@@ -496,10 +496,10 @@ class Classifier():
         random.shuffle(dataset)             #shuffle the cm-label tuples
 
         if split == 'train':    #if training set is given, split to training and validation
-            X_val, X_train, y_val, y_train = train_test_split(X, y, test_size=0.1)
+            X_train, X_dev, y_train, y_dev = train_test_split(X, y, test_size=0.1)
             X_train_sparse = sparse.dok_matrix(X_train)
-            X_val_sparse = sparse.dok_matrix(X_val)
-            return X_train_sparse, X_val_sparse, y_train, y_val
+            X_dev_sparse = sparse.dok_matrix(X_dev)
+            return X_train_sparse, X_dev_sparse, y_train, y_dev
 
         elif split == 'test':
             splitted = [list(t) for t in zip(*dataset)] #unzip the list of tuples of [(dense_matrix, labels)]
@@ -507,8 +507,6 @@ class Classifier():
             y_shuffled = splitted[1]
             X_sparse = sparse.dok_matrix(np.concatenate(X_shuffled, axis=0)) #convert back to sparse matrix from dense
             return X_sparse, y_shuffled
-
-
 
     def collect_words_from_raw_text(self, mode, raw_text):
         p = Preprocessor()
@@ -558,7 +556,7 @@ class Classifier():
         count_mtx, encoded_labels = self.run_count_matrix_creator(mode, docs, vocab, labels)
         count_mtx_test, encoded_labels_test = self.run_count_matrix_creator(mode, test_docs, vocab, test_labels)
 
-        X_train, X_val, y_train, y_val = self.shuffle_and_split('train', count_mtx, encoded_labels)
+        X_train, X_dev, y_train, y_dev = self.shuffle_and_split('train', count_mtx, encoded_labels)
         X_test, y_test = self.shuffle_and_split('test', count_mtx_test, encoded_labels_test)
 
         #save shuffled and splitted data to disk
@@ -566,30 +564,30 @@ class Classifier():
             pickle.dump(X_train, f)
         with open('X_test_{}.pkl'.format(mode), 'wb') as f:
             pickle.dump(X_test, f)
-        with open('X_val_{}.pkl'.format(mode), 'wb') as f:
-            pickle.dump(X_val, f)
+        with open('X_dev_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(X_dev, f)
         with open('y_train_{}.pkl'.format(mode), 'wb') as f:
             pickle.dump(y_train, f)
-        with open('y_val_{}.pkl'.format(mode), 'wb') as f:
-            pickle.dump(y_val, f)
+        with open('y_dev_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(y_dev, f)
         with open('y_test_{}.pkl'.format(mode), 'wb') as f:
             pickle.dump(y_test, f)
 
     def load_data(self, mode):
         with open('X_train_{}.pkl'.format(mode), 'rb') as f:
             X_train = pickle.load(f)
-        with open('X_val_{}.pkl'.format(mode), 'rb') as f:
-            X_val = pickle.load(f)
+        with open('X_dev_{}.pkl'.format(mode), 'rb') as f:
+            X_dev = pickle.load(f)
         with open('X_test_{}.pkl'.format(mode), 'rb') as f:
             X_test = pickle.load(f)
         with open('y_train_{}.pkl'.format(mode), 'rb') as f:
             y_train = pickle.load(f)
-        with open('y_val_{}.pkl'.format(mode), 'rb') as f:
-            y_val = pickle.load(f)
+        with open('y_dev_{}.pkl'.format(mode), 'rb') as f:
+            y_dev = pickle.load(f)
         with open('y_test_{}.pkl'.format(mode), 'rb') as f:
             y_test = pickle.load(f)
 
-        return X_train, X_val, X_test, y_train, y_val, y_test
+        return X_train, X_dev, X_test, y_train, y_dev, y_test
 
     def train_model(self, mode, classifier='svm'):
         if mode == 'baseline':
@@ -600,7 +598,7 @@ class Classifier():
         else:
             raise ValueError('wrong mode to train SVM!!')
 
-        X_train, X_val, X_test, y_train, y_val, y_test = self.load_data(mode)
+        X_train, X_dev, X_test, y_train, y_dev, y_test = self.load_data(mode)
 
         if classifier == 'linsvm':
             model = LinearSVC(C=c, max_iter=5000, verbose=True) #init sklearn.svm.LinearSVC for "improved" model
@@ -610,7 +608,6 @@ class Classifier():
             model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
         else:
             raise ValueError('Wrong model choice! your current model: {}'.format(classifier))
-
         print("start training the {} model!".format(classifier))
         start_train = time.time()
         if classifier == 'nb':
@@ -629,7 +626,10 @@ class Classifier():
             model = pickle.load(f)
         return model
 
+        #required in the lab but not in cw2: only here to test the classification performance
+        #not required in classification.csv
     def accuracy(self, y_true, y_pred):
+
         correct = 0
         for true, pred in zip(y_true, y_pred):
             if true == pred:
@@ -694,42 +694,40 @@ class Classifier():
         f1['macro'] = round((f1[0] + f1[1] + f1[2])/3,3)
         return f1
 
-    def get_metrics_str(self, y_true, y_pred):
-        metrics_string = ''
-
-        accuracy = self.accuracy(y_true, y_pred)
-        metrics_string += "[precision]\n" + "OT: " + str(accuracy[0]) + "\nNT: " + str(accuracy[1]) + "\nQuran: " + str(accuracy[2]) + \
-                         '\nmacro: ' +str(accuracy['macro']) +'\n'
+    def get_metrics_str(self, mode, split, y_true, y_pred):
+        #OT = 0, NT = 1, Quran = 2
 
         precision = self.precision(y_true, y_pred)
-        metrics_string += "[precision]\n" + "OT: " + str(precision[0]) + "\nNT: " + str(precision[1]) + "\nQuran: " + str(precision[2]) + \
-                         '\nmacro: ' +str(precision['macro']) +'\n'
-
         recall = self.recall(y_true, y_pred)
-        metrics_string += "[recall]\n" + "\nOT: " + str(recall[0]) + "\nNT: " + str(recall[1]) + "\nQuran: " + str(recall[2]) + \
-                         '\nmacro: ' +str(recall['macro']) +'\n'
-
         f1 = self.f1_score(y_true, y_pred)
-        metrics_string += "[f1-score]" + "\nOT: " + str(f1[0]) + "\nNT: " + str(f1[1]) + "\nQuran: " + str(f1[2]) + \
-                         '\nmacro: ' +str(f1['macro']) +'\n'
+
+        metrics_string = ''
+        metrics_string += mode + ',' + split                                #add system and split
+        metrics_string += precision[2] + ',' + recall[2] + f1[2] + ','      #add p, r, f of Quran
+        metrics_string += precision[0] + ',' + recall[0] + f1[0] + ','      #add p, r, f of OT
+        metrics_string += precision[1] + ',' + recall[1] + f1[1] + ','      #add p, r, f of NT
+        metrics_string += precision['macro'] + ',' + recall['macro'] + f1['macro']
 
         return metrics_string
 
     def evaluate_predictions(self, mode, classifier='svm'):
         model = self.load_svm_model(mode, classifier)
-        _, X_val, X_test, _, y_val, y_test = self.load_data(mode)
+        X_train, X_dev, X_test, y_train, y_dev, y_test = self.load_data(mode)
         if classifier == 'nb':
-            y_val_pred = model.predict(X_val.todense())
+            y_train_pred = model.predict(X_train.todense())
+            y_dev_pred = model.predict(X_dev.todense())
             y_pred = model.predict(X_test.todense())
         else:
-            y_val_pred = model.predict(X_val)
+            y_train_pred = model.predict(X_train)
+            y_dev_pred = model.predict(X_dev)
             y_pred = model.predict(X_test)
 
-        with open('results_temp.txt', 'a') as f:
-            f.write('=============================[{}, validation]=============================\n'.format(mode))
-            f.write(self.get_metrics_str(y_val, y_val_pred))
-            f.write('\n================================[{}, test]================================\n'.format(mode))
-            f.write(self.get_metrics_str(y_test, y_pred))
+        with open('classification.csv', 'a') as f:
+            f.write('system,split,p-quran,r-quran,f-quran,p-ot,r-ot,f-ot,p-nt,r-nt,f-nt,p-macro,r-macro,f-macro')
+            f.write(self.get_metrics_str(mode, 'train', y_train, y_train_pred) + '\n')
+            f.write(self.get_metrics_str(mode, 'dev', y_dev, y_dev_pred) + '\n')
+            f.write(self.get_metrics_str(mode, 'dev', y_test, y_pred) + '\n')
+            f.write('\n')
 
 
 a = Analyse()
@@ -747,8 +745,7 @@ a = Analyse()
 
 c = Classifier()
 modes = ['baseline', 'improved']
-m = 0
+m = 1
 mode = modes[m]
-c.prepare_data(mode)
-c.train_model(mode)
-c.evaluate_predictions(modes[m^1])
+# c.prepare_data(mode)
+c.train_model(mode, 'nb')
