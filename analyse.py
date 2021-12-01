@@ -6,6 +6,7 @@ from collections import defaultdict
 import json
 from sklearn.metrics import classification_report
 from sklearn.svm import SVC, LinearSVC
+from sklearn.naive_bayes import GaussianNB
 import numpy as np
 from collections import Counter
 from gensim.corpora.dictionary import Dictionary
@@ -72,9 +73,15 @@ class Preprocessor():
             count_dict = Counter(docs[i])
             for word in count_dict.keys():
                 if mode == 'baseline':
-                    count_mtx[i, vocab[word]] = count_dict[word]
-                elif mode == 'advanced':
-                    count_mtx[i, vocab[word]] = count_dict[word] * 1000
+                    try:
+                        count_mtx[i, vocab[word]] = count_dict[word]
+                    except:
+                        continue
+                elif mode == 'improved':
+                    try:
+                        count_mtx[i, vocab[word]] = count_dict[word] * 1000
+                    except:
+                        continue
                 else:
                     raise ValueError('wrong mode choice!')
         return count_mtx
@@ -470,6 +477,7 @@ class Classifier():
 
     def __init__(self):
         self.raw_data = self.load_raw_data()
+        self.raw_test_data = self.load_raw_test_data()
 
     def load_raw_data(self):
         with open('train_and_dev.tsv', 'r') as f:
@@ -477,21 +485,33 @@ class Classifier():
 
         return raw_text
 
-    def shuffle_and_split(self, X, y):
+    def load_raw_test_data(self):
+        with open('test.tsv', 'r') as f:
+            raw_text = f.readlines()
+
+        return raw_text
+
+    def shuffle_and_split(self, split, X, y):
         dataset = list(zip(X.todense(),y))  #zip the count matrix and labels
         random.shuffle(dataset)             #shuffle the cm-label tuples
 
-        X_test, X_train, y_test, y_train = train_test_split(X, y, test_size=0.9)
+        if split == 'train':    #if training set is given, split to training and validation
+            X_val, X_train, y_val, y_train = train_test_split(X, y, test_size=0.1)
+            X_train_sparse = sparse.dok_matrix(X_train)
+            X_val_sparse = sparse.dok_matrix(X_val)
+            return X_train_sparse, X_val_sparse, y_train, y_val
 
-        X_train_sparse = sparse.dok_matrix(X_train)
-        X_test_sparse = sparse.dok_matrix(X_test)
+        elif split == 'test':
+            splitted = [list(t) for t in zip(*dataset)] #unzip the list of tuples of [(dense_matrix, labels)]
+            X_shuffled = splitted[0]
+            y_shuffled = splitted[1]
+            X_sparse = sparse.dok_matrix(np.concatenate(X_shuffled, axis=0)) #convert back to sparse matrix from dense
+            return X_sparse, y_shuffled
 
-        return X_train_sparse, X_test_sparse, y_train, y_test
 
-    def prepare_data(self, mode):
+
+    def collect_words_from_raw_text(self, mode, raw_text):
         p = Preprocessor()
-        raw_text = self.raw_data
-
         ####collect words from raw text#####################################################################
         docs = []
         labels = []
@@ -502,68 +522,101 @@ class Classifier():
             c, document = line.split('\t')
             if mode == 'baseline':
                 docs.append(p.preprocess_baseline(document))
-            elif mode == 'advanced':
+            elif mode == 'improved':
                 docs.append(p.preprocess(document))
             else:
-                raise ValueError('Wrong mode choice! It should be either baseline or advanced.')
+                raise ValueError('Wrong mode choice! It should be either baseline or improved.')
             labels.append(c.lower())
         ####################################################################################################
+        return docs, labels
 
-        # create vocab and count matrix ####################################################################
-        if mode == 'baseline':
-            vocab = p.unique_from_array(p.dictionify(docs))               #create vocab from the corpus
-            docs = p.dictionify(docs)
-        elif mode == 'advanced':
-            docs = p.dictionify(docs)           #convert docs to dictionary
-            vocab = p.unique_from_array(docs)
-        else:
-            raise ValueError('Wrong mode choice! It should be either baseline or advanced.')
+    #create vocabulary using the docs
+    def create_vocab(self, docs):
+        p = Preprocessor()
+        vocab = p.unique_from_array(p.dictionify(docs)) # convert docs to be in dictionary form and create vocab
+
+        return vocab
+
+    def run_count_matrix_creator(self, mode, docs, vocab, labels):
+        p = Preprocessor()
+
+        docs = p.dictionify(docs)
         count_mtx = p.create_count_matrix(docs, vocab, mode)
-        encoded_labels = p.encode_labels(labels)        #encode corpus labels; ot=0, nt=1, quran=2
-        ####################################################################################################
+        encoded_labels = p.encode_labels(labels)  # encode corpus labels; ot=0, nt=1, quran=2
 
-        X_train, X_test, y_train, y_test = self.shuffle_and_split(count_mtx, encoded_labels)
+        return count_mtx, encoded_labels
+
+    def prepare_data(self, mode):
+        raw_text = self.raw_data
+        raw_test_text = self.raw_test_data
+
+        docs, labels = self.collect_words_from_raw_text(mode, raw_text)
+        test_docs, test_labels = self.collect_words_from_raw_text(mode, raw_test_text)
+
+        vocab = self.create_vocab(docs) #create vocabulary using training data: test data doesn't effect the vocab
+
+        count_mtx, encoded_labels = self.run_count_matrix_creator(mode, docs, vocab, labels)
+        count_mtx_test, encoded_labels_test = self.run_count_matrix_creator(mode, test_docs, vocab, test_labels)
+
+        X_train, X_val, y_train, y_val = self.shuffle_and_split('train', count_mtx, encoded_labels)
+        X_test, y_test = self.shuffle_and_split('test', count_mtx_test, encoded_labels_test)
 
         #save shuffled and splitted data to disk
         with open('X_train_{}.pkl'.format(mode), 'wb') as f:
             pickle.dump(X_train, f)
         with open('X_test_{}.pkl'.format(mode), 'wb') as f:
             pickle.dump(X_test, f)
+        with open('X_val_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(X_val, f)
         with open('y_train_{}.pkl'.format(mode), 'wb') as f:
             pickle.dump(y_train, f)
+        with open('y_val_{}.pkl'.format(mode), 'wb') as f:
+            pickle.dump(y_val, f)
         with open('y_test_{}.pkl'.format(mode), 'wb') as f:
             pickle.dump(y_test, f)
 
     def load_data(self, mode):
         with open('X_train_{}.pkl'.format(mode), 'rb') as f:
             X_train = pickle.load(f)
+        with open('X_val_{}.pkl'.format(mode), 'rb') as f:
+            X_val = pickle.load(f)
         with open('X_test_{}.pkl'.format(mode), 'rb') as f:
             X_test = pickle.load(f)
         with open('y_train_{}.pkl'.format(mode), 'rb') as f:
             y_train = pickle.load(f)
+        with open('y_val_{}.pkl'.format(mode), 'rb') as f:
+            y_val = pickle.load(f)
         with open('y_test_{}.pkl'.format(mode), 'rb') as f:
             y_test = pickle.load(f)
 
-        return X_train, X_test, y_train, y_test
+        return X_train, X_val, X_test, y_train, y_val, y_test
 
-    def train_svm(self, mode, classifier='svm'):
+    def train_model(self, mode, classifier='svm'):
         if mode == 'baseline':
             c = 1000
-        elif mode == 'advanced':
+            classifier = 'svm' #set baseline model to svm always
+        elif mode == 'improved':
             c = 10
         else:
             raise ValueError('wrong mode to train SVM!!')
 
-        X_train, X_test, y_train, y_test = self.load_data(mode)
+        X_train, X_val, X_test, y_train, y_val, y_test = self.load_data(mode)
 
         if classifier == 'linsvm':
-            model = LinearSVC(C=c, max_iter=5000, verbose=True) #init sklearn.svm.LinearSVC for advanced model
-        else:
+            model = LinearSVC(C=c, max_iter=5000, verbose=True) #init sklearn.svm.LinearSVC for "improved" model
+        elif classifier == 'nb':
+            model = GaussianNB()
+        elif classifier == 'svm':
             model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
+        else:
+            raise ValueError('Wrong model choice! your current model: {}'.format(classifier))
 
-        print("start traninig SVM!")
+        print("start training the {} model!".format(classifier))
         start_train = time.time()
-        model.fit(X_train,y_train)
+        if classifier == 'nb':
+            model.fit(X_train.todense(),y_train)
+        else:
+            model.fit(X_train,y_train)
         print('total training time: {} seconds'.format(time.time() - start_train))
 
         with open('{}_model_{}.pkl'.format(classifier, mode), 'wb') as f:
@@ -576,12 +629,107 @@ class Classifier():
             model = pickle.load(f)
         return model
 
+    def accuracy(self, y_true, y_pred):
+        correct = 0
+        for true, pred in zip(y_true, y_pred):
+            if true == pred:
+                correct += 1
+
+        return round(correct/ len(y_true),3)
+
+    def precision(self, y_true, y_pred):
+        a = Analyse()
+        lookup = a.init_nd_dict()
+        for true, pred in zip(y_true, y_pred):
+            if true == pred:
+                try:
+                    lookup[pred]['tp'] += 1
+                except:
+                    lookup[pred]['tp'] = 1
+            else:
+                try:
+                    lookup[pred]['fp'] += 1
+                except:
+                    lookup[pred]['fp'] = 1
+
+        precisions = {}
+        for i in range(3):
+            precisions[i] = round(lookup[i]['tp'] / (lookup[i]['tp'] + lookup[i]['fp']),3)
+
+        precisions['macro'] = round((precisions[0] + precisions[1] + precisions[2])/3,3)
+
+        return precisions
+
+    def recall(self, y_true, y_pred):
+        a = Analyse()
+        lookup = a.init_nd_dict()
+        for true, pred in zip(y_true, y_pred):
+            if true == pred:
+                try:
+                    lookup[true]['tp'] += 1
+                except:
+                    lookup[true]['tp'] = 1
+            else:
+                try:
+                    lookup[true]['fn'] += 1
+                except:
+                    lookup[true]['fn'] = 1
+
+        recall = {}
+        for i in range(3):
+            recall[i] = round(lookup[i]['tp'] / (lookup[i]['tp'] + lookup[i]['fn']), 3)
+
+        recall['macro'] = round((recall[0] + recall[1] + recall[2])/3,3)
+
+        return recall
+
+    def f1_score(self, y_true, y_pred):
+        precision = self.precision(y_true, y_pred)
+        recall = self.recall(y_true, y_pred)
+
+        f1 = {}
+        for i in range(3):
+            f1[i] = round( 2 * (precision[i] * recall[i]) / (precision[i] + recall[i]),3)
+
+        f1['macro'] = round((f1[0] + f1[1] + f1[2])/3,3)
+        return f1
+
+    def get_metrics_str(self, y_true, y_pred):
+        metrics_string = ''
+
+        accuracy = self.accuracy(y_true, y_pred)
+        metrics_string += "[precision]\n" + "OT: " + str(accuracy[0]) + "\nNT: " + str(accuracy[1]) + "\nQuran: " + str(accuracy[2]) + \
+                         '\nmacro: ' +str(accuracy['macro']) +'\n'
+
+        precision = self.precision(y_true, y_pred)
+        metrics_string += "[precision]\n" + "OT: " + str(precision[0]) + "\nNT: " + str(precision[1]) + "\nQuran: " + str(precision[2]) + \
+                         '\nmacro: ' +str(precision['macro']) +'\n'
+
+        recall = self.recall(y_true, y_pred)
+        metrics_string += "[recall]\n" + "\nOT: " + str(recall[0]) + "\nNT: " + str(recall[1]) + "\nQuran: " + str(recall[2]) + \
+                         '\nmacro: ' +str(recall['macro']) +'\n'
+
+        f1 = self.f1_score(y_true, y_pred)
+        metrics_string += "[f1-score]" + "\nOT: " + str(f1[0]) + "\nNT: " + str(f1[1]) + "\nQuran: " + str(f1[2]) + \
+                         '\nmacro: ' +str(f1['macro']) +'\n'
+
+        return metrics_string
+
     def evaluate_predictions(self, mode, classifier='svm'):
         model = self.load_svm_model(mode, classifier)
-        _, X_test, _, y_test = self.load_data(mode)
-        y_pred = model.predict(X_test)
-        print('==========================[{}]=========================='.format(mode))
-        print(classification_report(y_test, y_pred, digits=4))
+        _, X_val, X_test, _, y_val, y_test = self.load_data(mode)
+        if classifier == 'nb':
+            y_val_pred = model.predict(X_val.todense())
+            y_pred = model.predict(X_test.todense())
+        else:
+            y_val_pred = model.predict(X_val)
+            y_pred = model.predict(X_test)
+
+        with open('results_temp.txt', 'a') as f:
+            f.write('=============================[{}, validation]=============================\n'.format(mode))
+            f.write(self.get_metrics_str(y_val, y_val_pred))
+            f.write('\n================================[{}, test]================================\n'.format(mode))
+            f.write(self.get_metrics_str(y_test, y_pred))
 
 
 a = Analyse()
@@ -598,9 +746,9 @@ a = Analyse()
 # a.find_top_tokens()
 
 c = Classifier()
-modes = ['baseline', 'advanced']
-m = 2
+modes = ['baseline', 'improved']
+m = 0
 mode = modes[m]
 c.prepare_data(mode)
-# c.train_svm(mode)
-# c.evaluate_predictions(modes[m^1])
+c.train_model(mode)
+c.evaluate_predictions(modes[m^1])
