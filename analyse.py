@@ -637,20 +637,27 @@ class Classifier():
 
         return round(correct/ len(y_true),3)
 
-    def precision(self, y_true, y_pred):
+    #initialise metrics dictinary for easier additions
+    def init_metric_dict(self):
         a = Analyse()
         lookup = a.init_nd_dict()
+        for i in range(3):
+            lookup[i]['tp'] = 0
+            lookup[i]['fp'] = 0
+            lookup[i]['fn'] = 0
+
+        return lookup
+
+    def precision(self, y_true, y_pred):
+
+        #initialise metrics dictionary
+        lookup = self.init_metric_dict()
+
         for true, pred in zip(y_true, y_pred):
             if true == pred:
-                try:
-                    lookup[pred]['tp'] += 1
-                except:
-                    lookup[pred]['tp'] = 1
+                lookup[pred]['tp'] += 1
             else:
-                try:
-                    lookup[pred]['fp'] += 1
-                except:
-                    lookup[pred]['fp'] = 1
+                lookup[pred]['fp'] += 1
 
         precisions = {}
         for i in range(3):
@@ -661,19 +668,15 @@ class Classifier():
         return precisions
 
     def recall(self, y_true, y_pred):
-        a = Analyse()
-        lookup = a.init_nd_dict()
+
+        #initialise metrics dictionary
+        lookup = self.init_metric_dict()
+
         for true, pred in zip(y_true, y_pred):
             if true == pred:
-                try:
-                    lookup[true]['tp'] += 1
-                except:
-                    lookup[true]['tp'] = 1
+                lookup[true]['tp'] += 1
             else:
-                try:
-                    lookup[true]['fn'] += 1
-                except:
-                    lookup[true]['fn'] = 1
+                lookup[true]['fn'] += 1
 
         recall = {}
         for i in range(3):
@@ -702,11 +705,11 @@ class Classifier():
         f1 = self.f1_score(y_true, y_pred)
 
         metrics_string = ''
-        metrics_string += mode + ',' + split                                #add system and split
-        metrics_string += precision[2] + ',' + recall[2] + f1[2] + ','      #add p, r, f of Quran
-        metrics_string += precision[0] + ',' + recall[0] + f1[0] + ','      #add p, r, f of OT
-        metrics_string += precision[1] + ',' + recall[1] + f1[1] + ','      #add p, r, f of NT
-        metrics_string += precision['macro'] + ',' + recall['macro'] + f1['macro']
+        metrics_string += mode + ',' + split+','                                           #add system and split
+        metrics_string += str(precision[2]) + ',' + str(recall[2]) + ',' + str(f1[2]) + ','      #add p, r, f of Quran
+        metrics_string += str(precision[0]) + ',' + str(recall[0]) + ',' + str(f1[0]) + ','      #add p, r, f of OT
+        metrics_string += str(precision[1]) + ',' + str(recall[1]) + ',' + str(f1[1]) + ','      #add p, r, f of NT
+        metrics_string += str(precision['macro']) + ',' + str(recall['macro']) + ','  + str(f1['macro'])
 
         return metrics_string
 
@@ -716,18 +719,22 @@ class Classifier():
         if classifier == 'nb':
             y_train_pred = model.predict(X_train.todense())
             y_dev_pred = model.predict(X_dev.todense())
-            y_pred = model.predict(X_test.todense())
+            y_test_pred = model.predict(X_test.todense())
         else:
             y_train_pred = model.predict(X_train)
             y_dev_pred = model.predict(X_dev)
-            y_pred = model.predict(X_test)
+            y_test_pred = model.predict(X_test)
 
         with open('classification.csv', 'a') as f:
-            f.write('system,split,p-quran,r-quran,f-quran,p-ot,r-ot,f-ot,p-nt,r-nt,f-nt,p-macro,r-macro,f-macro')
+            f.write('system,split,p-quran,r-quran,f-quran,p-ot,r-ot,f-ot,p-nt,r-nt,f-nt,p-macro,r-macro,f-macro\n')
             f.write(self.get_metrics_str(mode, 'train', y_train, y_train_pred) + '\n')
             f.write(self.get_metrics_str(mode, 'dev', y_dev, y_dev_pred) + '\n')
-            f.write(self.get_metrics_str(mode, 'dev', y_test, y_pred) + '\n')
+            f.write(self.get_metrics_str(mode, 'test', y_test, y_test_pred) + '\n')
             f.write('\n')
+            f.write(classification_report(y_train, y_train_pred))
+            f.write(classification_report(y_dev, y_dev_pred))
+            f.write(classification_report(y_test, y_test_pred))
+
 
 
 a = Analyse()
@@ -748,4 +755,4 @@ modes = ['baseline', 'improved']
 m = 1
 mode = modes[m]
 # c.prepare_data(mode)
-c.train_model(mode, 'nb')
+c.train_model(mode, 'linsvm')
