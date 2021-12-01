@@ -731,11 +731,6 @@ class Classifier():
             f.write(self.get_metrics_str(mode, 'dev', y_dev, y_dev_pred) + '\n')
             f.write(self.get_metrics_str(mode, 'test', y_test, y_test_pred) + '\n')
             f.write('\n')
-            f.write(classification_report(y_train, y_train_pred))
-            f.write(classification_report(y_dev, y_dev_pred))
-            f.write(classification_report(y_test, y_test_pred))
-
-
 
 a = Analyse()
 # corp = a.create_corpus()
@@ -752,7 +747,7 @@ a = Analyse()
 
 c = Classifier()
 modes = ['baseline', 'improved']
-m = 1
+m = 0
 mode = modes[m]
 # c.prepare_data(mode)
-c.train_model(mode, 'linsvm')
+c.train_model(mode)
