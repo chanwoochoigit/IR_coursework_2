@@ -496,7 +496,7 @@ class Classifier():
         random.shuffle(dataset)             #shuffle the cm-label tuples
 
         if split == 'train':    #if training set is given, split to training and validation
-            X_val, X_train, y_val, y_train = train_test_split(X, y, test_size=0.1)
+            X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.1)
             X_train_sparse = sparse.dok_matrix(X_train)
             X_val_sparse = sparse.dok_matrix(X_val)
             return X_train_sparse, X_val_sparse, y_train, y_val
@@ -507,8 +507,6 @@ class Classifier():
             y_shuffled = splitted[1]
             X_sparse = sparse.dok_matrix(np.concatenate(X_shuffled, axis=0)) #convert back to sparse matrix from dense
             return X_sparse, y_shuffled
-
-
 
     def collect_words_from_raw_text(self, mode, raw_text):
         p = Preprocessor()
@@ -610,7 +608,6 @@ class Classifier():
             model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
         else:
             raise ValueError('Wrong model choice! your current model: {}'.format(classifier))
-
         print("start training the {} model!".format(classifier))
         start_train = time.time()
         if classifier == 'nb':
@@ -698,20 +695,19 @@ class Classifier():
         metrics_string = ''
 
         accuracy = self.accuracy(y_true, y_pred)
-        metrics_string += "[precision]\n" + "OT: " + str(accuracy[0]) + "\nNT: " + str(accuracy[1]) + "\nQuran: " + str(accuracy[2]) + \
-                         '\nmacro: ' +str(accuracy['macro']) +'\n'
+        metrics_string += "[accuracy] " + str(accuracy) +'\n'
 
         precision = self.precision(y_true, y_pred)
-        metrics_string += "[precision]\n" + "OT: " + str(precision[0]) + "\nNT: " + str(precision[1]) + "\nQuran: " + str(precision[2]) + \
-                         '\nmacro: ' +str(precision['macro']) +'\n'
+        metrics_string += "[precision] " + " "+ str(precision[0]) + " " + str(precision[1]) + " " + str(precision[2]) + " " +\
+                         'macro: ' +str(precision['macro']) +'\n'
 
         recall = self.recall(y_true, y_pred)
-        metrics_string += "[recall]\n" + "\nOT: " + str(recall[0]) + "\nNT: " + str(recall[1]) + "\nQuran: " + str(recall[2]) + \
-                         '\nmacro: ' +str(recall['macro']) +'\n'
+        metrics_string += "[recall] " + " "+ str(recall[0]) + " " + str(recall[1]) + " " + str(recall[2]) + " " +\
+                         'macro: ' +str(recall['macro']) +'\n'
 
         f1 = self.f1_score(y_true, y_pred)
-        metrics_string += "[f1-score]" + "\nOT: " + str(f1[0]) + "\nNT: " + str(f1[1]) + "\nQuran: " + str(f1[2]) + \
-                         '\nmacro: ' +str(f1['macro']) +'\n'
+        metrics_string += "[f1-score] " + " "+ str(f1[0]) + " " + str(f1[1]) + " " + str(f1[2]) + " " +\
+                         'macro: ' +str(f1['macro']) +'\n'
 
         return metrics_string
 
@@ -726,10 +722,11 @@ class Classifier():
             y_pred = model.predict(X_test)
 
         with open('results_temp.txt', 'a') as f:
-            f.write('=============================[{}, validation]=============================\n'.format(mode))
+            f.write('=============================[{}, {}, validation]=============================\n'.format(mode, classifier))
             f.write(self.get_metrics_str(y_val, y_val_pred))
-            f.write('\n================================[{}, test]================================\n'.format(mode))
+            f.write('\n================================[{}, {}, test]================================\n'.format(mode, classifier))
             f.write(self.get_metrics_str(y_test, y_pred))
+            f.write('\n')
 
 
 a = Analyse()
@@ -747,8 +744,7 @@ a = Analyse()
 
 c = Classifier()
 modes = ['baseline', 'improved']
-m = 0
+m = 1
 mode = modes[m]
-c.prepare_data(mode)
-c.train_model(mode)
-c.evaluate_predictions(modes[m^1])
+# c.prepare_data(mode)
+c.train_model(mode, 'nb')
