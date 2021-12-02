@@ -1,6 +1,8 @@
 from collections import Counter
 from random import randrange
 
+import pandas as pd
+
 nums = [3,3,3,3,2,2,2,2,1,1]
 nums_2 = [0,1,0,0,1,0,0,0,0,1]
 from math import log2, pow
@@ -61,6 +63,15 @@ def test_counter():
     aa = Counter(stuff)
     print(aa['g'])
 
+def test_eval_result():
+    aa = pd.read_csv('ir_eval.csv')
+    metric = 'nDCG@20'
+    for i, v in enumerate(aa[metric]):
+        if aa['query_number'][i] == 'mean':
+            print('-----------------')
+        else:
+            print(v)
+
 # # print(calc_mi(2, 0, 20754, 12728))
 # # print(calc_chi(2, 0, 20754, 12728))
 # # test_rand()
@@ -68,3 +79,4 @@ def test_counter():
 #              ' 0.030 * "1707" + 0.023 * "1855" + 0.019 * "841"'
 #
 # extract(sample_str)
+test_eval_result()

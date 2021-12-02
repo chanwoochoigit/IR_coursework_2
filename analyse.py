@@ -216,7 +216,7 @@ class Analyse():
             corpus = json.load(f)
         return corpus
 
-    # get counts to calculate mutual information
+    # get counts to calculate mutual information and Chi-squared
     def get_Ns(self, term, cls):
         classes = self.corpus.keys()
 
@@ -284,7 +284,6 @@ class Analyse():
 
         counter = 1
         for cls in self.corpus.keys():
-
             for doc in self.corpus[cls]:
                 print('class: {}/3---------------------------------------------------'.format(counter))
                 print('calculating mutual information...{}/{}'.format(doc, len(self.corpus[cls].keys())))
@@ -310,8 +309,8 @@ class Analyse():
         for i, item in enumerate(result_dict.items()):
             term = item[0]
             score = item[1]
-            print(term + ': ' + str(score))
-            if i > 10:
+            print(term + ': ' + str(round(score,4)))
+            if i > 8 :
                 break
 
     def sort_result(self, mode):
@@ -332,6 +331,7 @@ class Analyse():
         self.display_ranked_result(sorted_nt)
         print('----------------------------')
         self.display_ranked_result(sorted_qu)
+        print('----------------------------')
 
     #helper function for get_lda_corpus
     # RETURNS: 2d list of documents based on self.corpus
@@ -427,7 +427,7 @@ class Analyse():
         with open('avg_score_dict.json', 'w') as f:
             json.dump(avg_scores, f)
 
-    #extract token ides from a string returned from lda.print_topic()
+    #extract token ids from a string returned from lda.print_topic()
     def extract_tokens_from_lda_str(self, lda_token_string):
         ids = {}
 
@@ -452,9 +452,9 @@ class Analyse():
         nt_topic_best = list(avg_scores['nt'].keys())[0]
         qu_topic_best = list(avg_scores['quran'].keys())[0]
 
-        print('ot: '+ot_topic_best)
-        print('nt: '+nt_topic_best)
-        print('quran: '+qu_topic_best)
+        print('ot: '+ot_topic_best + ', score: ' + str(round(avg_scores['ot'][ot_topic_best],3)))
+        print('nt: '+nt_topic_best + ', score: ' + str(round(avg_scores['nt'][nt_topic_best],3)))
+        print('quran: '+qu_topic_best + ', score: ' + str(round(avg_scores['quran'][qu_topic_best],3)))
 
         #find key tokens for each corpus
 
@@ -734,20 +734,19 @@ class Classifier():
 
 a = Analyse()
 # corp = a.create_corpus()
-# corp = a.load_corpus()
-# print(len(corp['ot'].keys()) + len(corp['nt'].keys()) + len(corp['quran'].keys()))
-# print(a.get_mi_counts(1, 3))
+corp = a.load_corpus()
+print(len(corp['ot'].keys()) + len(corp['nt'].keys()) + len(corp['quran'].keys()))
 # a.run_calculation('mi')
 # a.run_calculation('chi')
-# a.sort_result('mi')
-# a.sort_result('chi')
+a.sort_result('mi')
+a.sort_result('chi')
 # a.train_lda(k=20)
-# a.lda_calc_average_score()
-# a.find_top_tokens()
+a.lda_calc_average_score()
+a.find_top_tokens()
 
-c = Classifier()
-modes = ['baseline', 'improved']
-m = 1
-mode = modes[m]
-# c.prepare_data(mode)
-c.train_model(mode)
+# c = Classifier()
+# modes = ['baseline', 'improved']
+# m = 1
+# mode = modes[m]
+# # c.prepare_data(mode)
+# c.train_model(mode)

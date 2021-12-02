@@ -22,7 +22,6 @@ from scipy import sparse
 import pickle
 from sklearn.model_selection import train_test_split
 
-
 class Eval():
 
     def __init__(self, path):
@@ -31,11 +30,11 @@ class Eval():
         self.result_path = path
         self.results = self.get_results()
 
-    def get_results(self):
+    def get_results(self):  # get results acquired by IR systems
         with open(self.result_path, 'r') as f:
             return f.readlines()
 
-    def get_corrects(self):
+    def get_corrects(self): # get "correct" results
         with open('qrels.csv', 'r') as f:
             return f.readlines()
 
@@ -55,11 +54,11 @@ class Eval():
                 continue
         return correct_dict
 
-    def filter_results(self, cutoff):
+    def filter_results(self, cutoff):   #collect results only before the cutoff
         filtered_dict = self.init_nd_dict()
 
         for line in self.results:
-            if 'system_number' and 'query_number' in line:
+            if 'system_number' and 'query_number' in line:  #skip first line
                 # print('start of line - skipping')
                 continue
             try:
@@ -70,11 +69,11 @@ class Eval():
                     if int(rk) <= cutoff:
                         filtered_dict[sys][q][doc] = sco
             except:
-                print('suspected wrong input!! please check around line 83')
+                print('suspected wrong input!! please check around line 65')
 
         return filtered_dict
 
-    def filter_results_dynamic(self):
+    def filter_results_dynamic(self):       #collect results not based on the cutoff but the length of "true" results
         filtered_result = self.init_nd_dict()
 
         for line in self.results:
@@ -91,7 +90,7 @@ class Eval():
 
         return filtered_result
 
-    def get_mean_of_query(self, eval_dict):
+    def get_mean_of_query(self, eval_dict):     #for each system get mean of the metrics
         for sys in eval_dict.keys():
             mean = 0
             for query in eval_dict[sys]:
@@ -100,7 +99,7 @@ class Eval():
 
         return eval_dict
 
-    def p_k(self, cutoff):
+    def p_k(self, cutoff):  # precision@k
         start_time = time.time()
         filtered_result = self.filter_results(cutoff)
 
@@ -120,10 +119,10 @@ class Eval():
         print('\n')
         print('{} seconds spent to calculate p@{}!'.format(round(time.time() - start_time, 5), cutoff))
         eval_result = self.get_mean_of_query(p10_marks)
-        print(eval_result)
+        # print(eval_result)
         return eval_result
 
-    def r_k(self, cutoff):
+    def r_k(self, cutoff):  # recall@k
         start_time = time.time()
         filtered_result = self.filter_results(cutoff)
 
@@ -143,10 +142,10 @@ class Eval():
         print('\n')
         print('{} seconds spent to calculate r@{}!'.format(round(time.time() - start_time, 5), cutoff))
         eval_result = self.get_mean_of_query(r50_marks)
-        print(eval_result)
+        # print(eval_result)
         return eval_result
 
-        """calculate precision at r: no. of relevant documents for query q"""
+        #calculate precision at r: no. of relevant documents for query q
     def r_precision(self):
         start_time = time.time()
         filtered_result = self.filter_results_dynamic()
@@ -167,11 +166,11 @@ class Eval():
         print('\n')
         print('{} seconds spent to calculate r-precision!'.format(round(time.time() - start_time, 5)))
         eval_result = self.get_mean_of_query(rprc_marks)
-        print(eval_result)
+        # print(eval_result)
         return eval_result
 
 
-    def AP(self):
+    def AP(self):   # calculate Average Precision
         start_time = time.time()
         results = self.filter_results(cutoff=0)
         ap_marks = self.init_nd_dict()
@@ -189,7 +188,7 @@ class Eval():
         print('\n')
         print('{} seconds spent to calculate AP!'.format(round(time.time() - start_time, 5)))
         eval_result = self.get_mean_of_query(ap_marks)
-        print(eval_result)
+        # print(eval_result)
         return eval_result
 
     def get_iDCG_k(self, cutoff):
