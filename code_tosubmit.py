@@ -293,6 +293,31 @@ class Eval():
                                                      ',' + '{:.3f}'.format(round(nDCG_20[sys][q], 3)) +
                                                      '\n')
 
+import itertools
+import random
+import re
+import time
+from collections import defaultdict
+import json
+from sklearn.metrics import classification_report
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC, LinearSVC
+from sklearn.naive_bayes import GaussianNB
+import numpy as np
+from collections import Counter
+from gensim.corpora.dictionary import Dictionary
+from gensim.test.utils import datapath
+from gensim.models import LdaModel
+from nltk.stem import PorterStemmer
+from math import log2
+from scipy import sparse
+#my preprocessing module from coursework 1
+import pickle
+from sklearn.model_selection import train_test_split
+
+
 class Preprocessor():
 
     def __init__(self):
@@ -489,7 +514,7 @@ class Analyse():
             corpus = json.load(f)
         return corpus
 
-    # get counts to calculate mutual information
+    # get counts to calculate mutual information and Chi-squared
     def get_Ns(self, term, cls):
         classes = self.corpus.keys()
 
@@ -557,7 +582,6 @@ class Analyse():
 
         counter = 1
         for cls in self.corpus.keys():
-
             for doc in self.corpus[cls]:
                 print('class: {}/3---------------------------------------------------'.format(counter))
                 print('calculating mutual information...{}/{}'.format(doc, len(self.corpus[cls].keys())))
@@ -583,8 +607,8 @@ class Analyse():
         for i, item in enumerate(result_dict.items()):
             term = item[0]
             score = item[1]
-            print(term + ': ' + str(score))
-            if i > 10:
+            print(term + ': ' + str(round(score,4)))
+            if i > 8 :
                 break
 
     def sort_result(self, mode):
@@ -605,6 +629,7 @@ class Analyse():
         self.display_ranked_result(sorted_nt)
         print('----------------------------')
         self.display_ranked_result(sorted_qu)
+        print('----------------------------')
 
     #helper function for get_lda_corpus
     # RETURNS: 2d list of documents based on self.corpus
@@ -658,7 +683,7 @@ class Analyse():
 
         #add results for each corpus to get average score for each topic
         for i, line in enumerate(lda_distrib):
-            if i % 1000 == 0:
+            if i % 5000 == 0:
                 print('converting the result to a disposable form...{}/{}'.format(i, len(lda_distrib)))
             line_dict = self.convert_list_of_tuple_to_dict(line)
             if i < len_ot:
@@ -700,7 +725,7 @@ class Analyse():
         with open('avg_score_dict.json', 'w') as f:
             json.dump(avg_scores, f)
 
-    #extract token ides from a string returned from lda.print_topic()
+    #extract token ids from a string returned from lda.print_topic()
     def extract_tokens_from_lda_str(self, lda_token_string):
         ids = {}
 
@@ -725,9 +750,9 @@ class Analyse():
         nt_topic_best = list(avg_scores['nt'].keys())[0]
         qu_topic_best = list(avg_scores['quran'].keys())[0]
 
-        print('ot: '+ot_topic_best)
-        print('nt: '+nt_topic_best)
-        print('quran: '+qu_topic_best)
+        print('ot: '+ot_topic_best + ', score: ' + str(round(avg_scores['ot'][ot_topic_best],3)))
+        print('nt: '+nt_topic_best + ', score: ' + str(round(avg_scores['nt'][nt_topic_best],3)))
+        print('quran: '+qu_topic_best + ', score: ' + str(round(avg_scores['quran'][qu_topic_best],3)))
 
         #find key tokens for each corpus
 
@@ -877,6 +902,12 @@ class Classifier():
             model = LinearSVC(C=c, max_iter=5000, verbose=True) #init sklearn.svm.LinearSVC for "improved" model
         elif classifier == 'nb':
             model = GaussianNB()
+        elif classifier == 'lr':
+            model = LogisticRegression(random_state=42, C=1000) #init sklearn logistic regression model
+        elif classifier == 'knn':
+            model = KNeighborsClassifier(n_neighbors=3) #init sklearn.neighbors.KNeigh..
+        elif classifier == 'dt':
+            model = DecisionTreeClassifier(random_state=42) #init sklearn.svm.SVC
         elif classifier == 'svm':
             model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
         else:
@@ -998,12 +1029,41 @@ class Classifier():
             y_dev_pred = model.predict(X_dev)
             y_test_pred = model.predict(X_test)
 
+        print(self.accuracy(y_test, y_test_pred))
         with open('classification.csv', 'a') as f:
             f.write('system,split,p-quran,r-quran,f-quran,p-ot,r-ot,f-ot,p-nt,r-nt,f-nt,p-macro,r-macro,f-macro\n')
             f.write(self.get_metrics_str(mode, 'train', y_train, y_train_pred) + '\n')
             f.write(self.get_metrics_str(mode, 'dev', y_dev, y_dev_pred) + '\n')
             f.write(self.get_metrics_str(mode, 'test', y_test, y_test_pred) + '\n')
             f.write('\n')
+
+def test_topics():
+    a = Analyse()
+    topics_dict = a.init_nd_dict()
+
+    #initialise dict values
+    for i in range(10):
+        topics_dict['ot'][str(i)] = 0
+        topics_dict['nt'][str(i)] = 0
+        topics_dict['qu'][str(i)] = 0
+
+    for i in range(200):
+        a.train_lda(k=20)
+        a.lda_calc_average_score()
+        ot, nt, qu = a.find_top_tokens()
+        try:
+            #add counts
+            topics_dict['ot'][ot] += 1
+            topics_dict['nt'][nt] += 1
+            topics_dict['qu'][qu] += 1
+        except:
+            print("check this out ==================================================================>")
+            print(str(ot) + ' ' + str(nt) + ' ' + str(qu))
+
+    print(topics_dict['ot'])
+    print(topics_dict['nt'])
+    print(topics_dict['qu'])
+
 
 """""""""""""""""""""""""""""""run and test the evaluation module"""""""""""""""""""""""""""""""
 e = Eval('system_results.csv')
@@ -1022,16 +1082,13 @@ e.format_evaluation(p_10, r_50, r_prec, AP, nDCG_10, nDCG_20)
 """""""""""""""""""""""""""""""""""test and run text analysis"""""""""""""""""""""""""""""""""""
 a = Analyse()
 # corp = a.create_corpus()
-# corp = a.load_corpus()
-# print(len(corp['ot'].keys()) + len(corp['nt'].keys()) + len(corp['quran'].keys()))
-# print(a.get_mi_counts(1, 3))
+corp = a.load_corpus()
+print(len(corp['ot'].keys()) + len(corp['nt'].keys()) + len(corp['quran'].keys()))
 # a.run_calculation('mi')
 # a.run_calculation('chi')
 # a.sort_result('mi')
 # a.sort_result('chi')
-# a.train_lda(k=20)
-# a.lda_calc_average_score()
-# a.find_top_tokens()
+# test_topics()
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 """""""""""""""""""""""""""""""""test and run text classification"""""""""""""""""""""""""""""""""
@@ -1040,5 +1097,5 @@ modes = ['baseline', 'improved']
 m = 1
 mode = modes[m]
 # c.prepare_data(mode)
-c.train_model(mode)
+c.train_model(mode, 'lr')
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""

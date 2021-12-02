@@ -5,6 +5,9 @@ import time
 from collections import defaultdict
 import json
 from sklearn.metrics import classification_report
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC, LinearSVC
 from sklearn.naive_bayes import GaussianNB
 import numpy as np
@@ -385,7 +388,7 @@ class Analyse():
 
         #add results for each corpus to get average score for each topic
         for i, line in enumerate(lda_distrib):
-            if i % 1000 == 0:
+            if i % 5000 == 0:
                 print('converting the result to a disposable form...{}/{}'.format(i, len(lda_distrib)))
             line_dict = self.convert_list_of_tuple_to_dict(line)
             if i < len_ot:
@@ -604,6 +607,12 @@ class Classifier():
             model = LinearSVC(C=c, max_iter=5000, verbose=True) #init sklearn.svm.LinearSVC for "improved" model
         elif classifier == 'nb':
             model = GaussianNB()
+        elif classifier == 'lr':
+            model = LogisticRegression(random_state=42, C=1000) #init sklearn logistic regression model
+        elif classifier == 'knn':
+            model = KNeighborsClassifier(n_neighbors=3) #init sklearn.neighbors.KNeigh..
+        elif classifier == 'dt':
+            model = DecisionTreeClassifier(random_state=42) #init sklearn.svm.SVC
         elif classifier == 'svm':
             model = SVC(C=c, verbose=True) #init sklearn.svm.SVC
         else:
@@ -725,6 +734,7 @@ class Classifier():
             y_dev_pred = model.predict(X_dev)
             y_test_pred = model.predict(X_test)
 
+        print(self.accuracy(y_test, y_test_pred))
         with open('classification.csv', 'a') as f:
             f.write('system,split,p-quran,r-quran,f-quran,p-ot,r-ot,f-ot,p-nt,r-nt,f-nt,p-macro,r-macro,f-macro\n')
             f.write(self.get_metrics_str(mode, 'train', y_train, y_train_pred) + '\n')
@@ -732,21 +742,47 @@ class Classifier():
             f.write(self.get_metrics_str(mode, 'test', y_test, y_test_pred) + '\n')
             f.write('\n')
 
+def test_topics():
+    a = Analyse()
+    topics_dict = a.init_nd_dict()
+
+    #initialise dict values
+    for i in range(10):
+        topics_dict['ot'][str(i)] = 0
+        topics_dict['nt'][str(i)] = 0
+        topics_dict['qu'][str(i)] = 0
+
+    for i in range(200):
+        a.train_lda(k=20)
+        a.lda_calc_average_score()
+        ot, nt, qu = a.find_top_tokens()
+        try:
+            #add counts
+            topics_dict['ot'][ot] += 1
+            topics_dict['nt'][nt] += 1
+            topics_dict['qu'][qu] += 1
+        except:
+            print("check this out ==================================================================>")
+            print(str(ot) + ' ' + str(nt) + ' ' + str(qu))
+
+    print(topics_dict['ot'])
+    print(topics_dict['nt'])
+    print(topics_dict['qu'])
+
+
 a = Analyse()
 # corp = a.create_corpus()
 corp = a.load_corpus()
 print(len(corp['ot'].keys()) + len(corp['nt'].keys()) + len(corp['quran'].keys()))
 # a.run_calculation('mi')
 # a.run_calculation('chi')
-a.sort_result('mi')
-a.sort_result('chi')
-# a.train_lda(k=20)
-a.lda_calc_average_score()
-a.find_top_tokens()
+# a.sort_result('mi')
+# a.sort_result('chi')
+# test_topics()
 
-# c = Classifier()
-# modes = ['baseline', 'improved']
-# m = 1
-# mode = modes[m]
-# # c.prepare_data(mode)
-# c.train_model(mode)
+c = Classifier()
+modes = ['baseline', 'improved']
+m = 1
+mode = modes[m]
+# c.prepare_data(mode)
+c.train_model(mode, 'lr')
