@@ -747,7 +747,7 @@ a = Analyse()
 
 c = Classifier()
 modes = ['baseline', 'improved']
-m = 0
+m = 1
 mode = modes[m]
 # c.prepare_data(mode)
 c.train_model(mode)

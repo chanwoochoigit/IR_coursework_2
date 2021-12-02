@@ -277,7 +277,6 @@ class Eval():
 
 
 e = Eval('system_results.csv')
-
 idx = e.true
 # print(idx)
 result = e.get_results()
