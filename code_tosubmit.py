@@ -1,8 +1,9 @@
 import itertools
 import random
 import re
-import time
-from collections import defaultdict
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
 import json
 import time
 from collections import defaultdict
@@ -293,30 +294,6 @@ class Eval():
                                                      ',' + '{:.3f}'.format(round(nDCG_20[sys][q], 3)) +
                                                      '\n')
 
-import itertools
-import random
-import re
-import time
-from collections import defaultdict
-import json
-from sklearn.metrics import classification_report
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.svm import SVC, LinearSVC
-from sklearn.naive_bayes import GaussianNB
-import numpy as np
-from collections import Counter
-from gensim.corpora.dictionary import Dictionary
-from gensim.test.utils import datapath
-from gensim.models import LdaModel
-from nltk.stem import PorterStemmer
-from math import log2
-from scipy import sparse
-#my preprocessing module from coursework 1
-import pickle
-from sklearn.model_selection import train_test_split
-
 
 class Preprocessor():
 
@@ -365,6 +342,7 @@ class Preprocessor():
 
     def create_count_matrix(self, docs, vocab, mode):
         count_mtx = sparse.dok_matrix((len(docs), len(vocab)), dtype='uint8')
+        multiplier = 1000               # multiply non-zero values to increase their influence
         for i in docs.keys():
             if i % 3000 == 0:
                 print('creating count matrix for {} SVM model ..... {}%'.format(mode, round(i / len(docs) * 100, 2)))
@@ -377,7 +355,7 @@ class Preprocessor():
                         continue
                 elif mode == 'improved':
                     try:
-                        count_mtx[i, vocab[word]] = count_dict[word] * 1000
+                        count_mtx[i, vocab[word]] = count_dict[word] * multiplier
                     except:
                         continue
                 else:
@@ -831,6 +809,14 @@ class Classifier():
         p = Preprocessor()
         vocab = p.unique_from_array(p.dictionify(docs)) # convert docs to be in dictionary form and create vocab
 
+        with open('vocab.pkl', 'wb') as f: # save vocab for later use
+            pickle.dump(vocab, f)
+
+        return vocab
+
+    def load_vocab(self):
+        with open('vocab.pkl', 'rb') as f:
+            vocab = pickle.load(f)
         return vocab
 
     def run_count_matrix_creator(self, mode, docs, vocab, labels):
@@ -892,7 +878,7 @@ class Classifier():
             c = 1000
             classifier = 'svm' #set baseline model to svm always
         elif mode == 'improved':
-            c = 10
+            c = pow(10,5)
         else:
             raise ValueError('wrong mode to train SVM!!')
 
@@ -946,9 +932,9 @@ class Classifier():
         a = Analyse()
         lookup = a.init_nd_dict()
         for i in range(3):
-            lookup[i]['tp'] = 0
-            lookup[i]['fp'] = 0
-            lookup[i]['fn'] = 0
+            lookup[i]['tp'] = 8.8542e-12 # initialise to epsilon instead of 0 to avoid dividing by 0 later
+            lookup[i]['fp'] = 8.8542e-12
+            lookup[i]['fn'] = 8.8542e-12
 
         return lookup
 
@@ -1018,6 +1004,9 @@ class Classifier():
         return metrics_string
 
     def evaluate_predictions(self, mode, classifier='svm'):
+        if mode == 'baseline': #if baseline model then set classifier to svm to avoid mistakes
+            classifier = 'svm'
+
         model = self.load_svm_model(mode, classifier)
         X_train, X_dev, X_test, y_train, y_dev, y_test = self.load_data(mode)
         if classifier == 'nb':
@@ -1037,17 +1026,21 @@ class Classifier():
             f.write(self.get_metrics_str(mode, 'test', y_test, y_test_pred) + '\n')
             f.write('\n')
 
+
 def test_topics():
     a = Analyse()
     topics_dict = a.init_nd_dict()
 
     #initialise dict values
-    for i in range(10):
+    num_topics = 20
+    for i in range(num_topics):
         topics_dict['ot'][str(i)] = 0
         topics_dict['nt'][str(i)] = 0
         topics_dict['qu'][str(i)] = 0
 
-    for i in range(200):
+    iteration = 300
+    for i in range(iteration):
+        print('=================== testing topic distributions ... {}/{} ==================='.format(i+1, iteration))
         a.train_lda(k=20)
         a.lda_calc_average_score()
         ot, nt, qu = a.find_top_tokens()
@@ -1082,8 +1075,8 @@ e.format_evaluation(p_10, r_50, r_prec, AP, nDCG_10, nDCG_20)
 """""""""""""""""""""""""""""""""""test and run text analysis"""""""""""""""""""""""""""""""""""
 a = Analyse()
 # corp = a.create_corpus()
-corp = a.load_corpus()
-print(len(corp['ot'].keys()) + len(corp['nt'].keys()) + len(corp['quran'].keys()))
+# corp = a.load_corpus()
+# print(len(corp['ot'].keys()) + len(corp['nt'].keys()) + len(corp['quran'].keys()))
 # a.run_calculation('mi')
 # a.run_calculation('chi')
 # a.sort_result('mi')
@@ -1097,5 +1090,5 @@ modes = ['baseline', 'improved']
 m = 1
 mode = modes[m]
 # c.prepare_data(mode)
-c.train_model(mode, 'lr')
+c.train_model(mode)
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
